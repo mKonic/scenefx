@@ -21,6 +21,7 @@
 #include "blur2_frag_src.h"
 #include "blur_effects_frag_src.h"
 #include "glass_frag_src.h"
+#include "glass_field_frag_src.h"
 #include "output_frag_src.h"
 
 GLuint compile_shader(GLuint type, const GLchar *src) {
@@ -114,7 +115,7 @@ void uniform_corner_radii_set(const struct shader_corner_radii *uniform,
 
 bool link_quad_program(struct quad_shader *shader, bool clip) {
 	GLchar quad_src_part[4096];
-	GLchar quad_src[16384];
+	GLchar quad_src[8192];
 	snprintf(quad_src_part, sizeof(quad_src_part),
 		quad_frag_src, clip);
 	snprintf(quad_src, sizeof(quad_src),
@@ -145,7 +146,7 @@ bool link_quad_program(struct quad_shader *shader, bool clip) {
 
 bool link_quad_grad_program(struct quad_grad_shader *shader, int max_len) {
 	GLchar quad_src_part[4096];
-	GLchar quad_src[16384];
+	GLchar quad_src[8192];
 	snprintf(quad_src_part, sizeof(quad_src_part),
 		quad_grad_frag_src, max_len);
 	snprintf(quad_src, sizeof(quad_src),
@@ -366,8 +367,43 @@ bool link_glass_program(struct glass_shader *shader) {
 	shader->mask_src = glGetUniformLocation(prog, "mask_src");
 	shader->radius = glGetUniformLocation(prog, "radius");
 	shader->refraction = glGetUniformLocation(prog, "refraction");
+	shader->tint = glGetUniformLocation(prog, "tint");
+	shader->adapt = glGetUniformLocation(prog, "adapt");
+	shader->saturation = glGetUniformLocation(prog, "saturation");
+	shader->highlight = glGetUniformLocation(prog, "highlight");
+	shader->light_dir = glGetUniformLocation(prog, "light_dir");
+	shader->shadow = glGetUniformLocation(prog, "shadow");
+	shader->field = glGetUniformLocation(prog, "field");
+	shader->field_texel = glGetUniformLocation(prog, "field_texel");
+	shader->field_sigma = glGetUniformLocation(prog, "field_sigma");
+	shader->shape_box = glGetUniformLocation(prog, "shape_box");
+	shader->shape_extra = glGetUniformLocation(prog, "shape_extra");
+	shader->shape_count = glGetUniformLocation(prog, "shape_count");
 	shader->thickness = glGetUniformLocation(prog, "thickness");
 	shader->alpha = glGetUniformLocation(prog, "alpha");
+	return true;
+}
+
+bool link_glass_field_program(struct glass_field_shader *shader) {
+	GLuint prog;
+	shader->program = prog = link_program(glass_field_frag_src);
+	if (!shader->program) {
+		return false;
+	}
+	shader->proj = glGetUniformLocation(prog, "proj");
+	shader->tex_proj = glGetUniformLocation(prog, "tex_proj");
+	shader->pos_attrib = glGetAttribLocation(prog, "pos");
+	shader->mask = glGetUniformLocation(prog, "mask");
+	shader->has_mask = glGetUniformLocation(prog, "has_mask");
+	shader->box_pos = glGetUniformLocation(prog, "box_pos");
+	shader->box_size = glGetUniformLocation(prog, "box_size");
+	shader->mask_src = glGetUniformLocation(prog, "mask_src");
+	shader->radius = glGetUniformLocation(prog, "radius");
+	shader->tex = glGetUniformLocation(prog, "tex");
+	shader->texel = glGetUniformLocation(prog, "texel");
+	shader->first = glGetUniformLocation(prog, "first");
+	shader->dir = glGetUniformLocation(prog, "dir");
+	shader->sigma = glGetUniformLocation(prog, "sigma");
 	return true;
 }
 

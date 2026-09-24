@@ -99,6 +99,7 @@ static inline void free_shaders(struct fx_renderer *renderer) {
 	glDeleteProgram(renderer->shaders.blur2.program);
 	glDeleteProgram(renderer->shaders.blur_effects.program);
 	glDeleteProgram(renderer->shaders.glass.program);
+	glDeleteProgram(renderer->shaders.glass_field.program);
 	glDeleteProgram(renderer->shaders.output.program);
 	pop_fx_debug(renderer);
 }
@@ -441,6 +442,10 @@ static bool link_shaders(struct fx_renderer *renderer) {
 	}
 	if (!link_glass_program(&renderer->shaders.glass)) {
 		wlr_log(WLR_ERROR, "Could not link glass shader");
+		goto error;
+	}
+	if (!link_glass_field_program(&renderer->shaders.glass_field)) {
+		wlr_log(WLR_ERROR, "Could not link glass field shader");
 		goto error;
 	}
 	if (!link_output_program(&renderer->shaders.output)) {

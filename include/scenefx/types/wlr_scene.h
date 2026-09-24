@@ -172,6 +172,24 @@ struct wlr_scene_shadow {
 	struct clipped_region clipped_region;
 };
 
+/** Liquid Glass's material over its bent background (see glass.frag). */
+struct wlr_scene_glass {
+	float tint[4];      // the glass's colour, straight alpha as how much of it
+	float adapt;        // extra tint where the backdrop would fight the content
+	float saturation;   // 1: the backdrop as is; more: richer
+	float highlight;    // the rim's light, 0 for none
+	float light_dir[2]; // where the light travels (screen space, y down)
+	float shadow;       // the soft shadow outside it, 0 for none
+};
+
+/** A piece of Liquid Glass: a rounded rectangle in the blur node's
+ * coordinates, and how opaque it is. */
+struct wlr_scene_glass_shape {
+	float x, y, width, height, radius, opacity;
+};
+
+#define WLR_SCENE_GLASS_MAX_SHAPES 16
+
 struct wlr_scene_blur {
 	struct wlr_scene_node node;
 	int width, height;
@@ -182,6 +200,9 @@ struct wlr_scene_blur {
 	float strength;
 	float alpha;
 	float refraction, refraction_thickness;
+	struct wlr_scene_glass glass;
+	struct wlr_scene_glass_shape glass_shapes[WLR_SCENE_GLASS_MAX_SHAPES];
+	int glass_shape_count;
 
 	bool should_only_blur_bottom_layer;
 
@@ -680,6 +701,20 @@ void wlr_scene_blur_set_alpha(struct wlr_scene_blur *blur, float alpha);
  * 0 draws it flat (the default).
  */
 void wlr_scene_blur_set_refraction(struct wlr_scene_blur *blur, float refraction, float thickness);
+
+/**
+ * Liquid Glass's material: tint, vibrancy and the rim's light, drawn with the
+ * bent background (only when refraction is on).
+ */
+void wlr_scene_blur_set_glass(struct wlr_scene_blur *blur, const struct wlr_scene_glass *glass);
+
+/**
+ * Where the glass is, exactly (at most WLR_SCENE_GLASS_MAX_SHAPES): drawn from
+ * these shapes' geometry instead of the transparency mask's pixels. None
+ * goes back to the mask.
+ */
+void wlr_scene_blur_set_glass_shapes(struct wlr_scene_blur *blur,
+		const struct wlr_scene_glass_shape *shapes, int count);
 
 /**
  * Sets the blur strength from 1.0f -> 0.0f. This adjusts how strong the blur is

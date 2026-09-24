@@ -9,6 +9,8 @@
 #include "render/egl.h"
 #include "types/fx/clipped_region.h"
 
+struct wlr_scene_glass;
+
 struct fx_gles_render_pass {
 	struct wlr_render_pass base;
 	struct fx_framebuffer *buffer;
@@ -103,6 +105,15 @@ struct fx_render_blur_pass_options {
 	// `refraction_thickness` of the edge. 0 draws it flat, as before.
 	float refraction;
 	float refraction_thickness;
+	// The glass's material (when refraction > 0): see struct wlr_scene_glass.
+	const struct wlr_scene_glass *glass;
+	// Where the mask (the panel's buffer) is, in output buffer pixels: the
+	// glass node may reach past it (for its shadow).
+	struct wlr_box mask_box;
+	// The glass's shapes, in output buffer pixels: x, y, width, height,
+	// radius, opacity. None: its shape is the mask's.
+	float glass_shapes[16][6];
+	int glass_shape_count;
 };
 
 struct fx_gles_render_pass *fx_get_render_pass(struct wlr_render_pass *render_pass);

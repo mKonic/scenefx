@@ -208,8 +208,40 @@ struct glass_shader {
 	GLint refraction;
 	GLint thickness;
 	GLint alpha;
+	GLint tint;
+	GLint adapt;
+	GLint saturation;
+	GLint highlight;
+	GLint light_dir;
+	GLint shadow;
+	GLint field;
+	GLint field_texel;
+	GLint field_sigma;
+	GLint shape_box;
+	GLint shape_extra;
+	GLint shape_count;
 };
 
 bool link_glass_program(struct glass_shader *shader);
+
+struct glass_field_shader {
+	GLuint program;
+	GLint proj;
+	GLint tex_proj;
+	GLint pos_attrib;
+	GLint mask;
+	GLint has_mask;
+	GLint box_pos;
+	GLint box_size;
+	GLint mask_src;
+	GLint radius;
+	GLint tex;
+	GLint texel;
+	GLint first;
+	GLint dir;
+	GLint sigma;
+};
+
+bool link_glass_field_program(struct glass_field_shader *shader);
 
 #endif

@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <math.h>
 #include <pixman.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1179,6 +1180,30 @@ void wlr_scene_blur_set_alpha(struct wlr_scene_blur *blur, float alpha) {
 	scene_node_update(&blur->node, NULL);
 }
 
+void wlr_scene_blur_set_glass(struct wlr_scene_blur *blur, const struct wlr_scene_glass *glass) {
+	if (memcmp(&blur->glass, glass, sizeof(*glass)) == 0) {
+		return;
+	}
+	blur->glass = *glass;
+	scene_node_update(&blur->node, NULL);
+}
+
+void wlr_scene_blur_set_glass_shapes(struct wlr_scene_blur *blur,
+		const struct wlr_scene_glass_shape *shapes, int count) {
+	if (count > WLR_SCENE_GLASS_MAX_SHAPES) {
+		count = WLR_SCENE_GLASS_MAX_SHAPES;
+	}
+	if (count == blur->glass_shape_count &&
+			(count == 0 || memcmp(blur->glass_shapes, shapes, sizeof(*shapes) * count) == 0)) {
+		return;
+	}
+	if (count > 0) {
+		memcpy(blur->glass_shapes, shapes, sizeof(*shapes) * count);
+	}
+	blur->glass_shape_count = count;
+	scene_node_update(&blur->node, NULL);
+}
+
 void wlr_scene_blur_set_refraction(struct wlr_scene_blur *blur, float refraction, float thickness) {
 	if (blur->refraction == refraction && blur->refraction_thickness == thickness) {
 		return;
@@ -2220,7 +2245,14 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
 		enum wl_output_transform mask_transform = WL_OUTPUT_TRANSFORM_NORMAL;
 
 		struct wlr_fbox mask_src_box = {0};
+		struct wlr_box mask_box = dst_box;
 		if (mask != NULL) {
+			mask_box = (struct wlr_box){
+				.x = x + mask->node.x - node->x,
+				.y = y + mask->node.y - node->y,
+			};
+			scene_node_get_size(&mask->node, &mask_box.width, &mask_box.height);
+			transform_output_box(&mask_box, data);
 			tex = scene_buffer_get_texture(mask, data->output->output->renderer);
 			mask_transform = wlr_output_transform_invert(mask->transform);
 			mask_transform = wlr_output_transform_compose(mask_transform, data->transform);
@@ -2252,7 +2284,32 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
 			.blur_strength = blur->strength,
 			.refraction = blur->refraction * data->scale,
 			.refraction_thickness = blur->refraction_thickness * data->scale,
+			.glass = &blur->glass,
+			.mask_box = mask_box,
 		};
+		for (int i = 0; i < blur->glass_shape_count && i < 16; i++) {
+			const struct wlr_scene_glass_shape *s = &blur->glass_shapes[i];
+			float *out = blur_options.glass_shapes[blur_options.glass_shape_count++];
+			if (data->transform == WL_OUTPUT_TRANSFORM_NORMAL) {
+				// Exact, to the subpixel: shapes move smoothly.
+				out[0] = (x + s->x) * data->scale;
+				out[1] = (y + s->y) * data->scale;
+				out[2] = s->width * data->scale;
+				out[3] = s->height * data->scale;
+			} else {
+				struct wlr_box b = {
+					.x = (int)roundf(x + s->x), .y = (int)roundf(y + s->y),
+					.width = (int)roundf(s->width), .height = (int)roundf(s->height),
+				};
+				transform_output_box(&b, data);
+				out[0] = b.x;
+				out[1] = b.y;
+				out[2] = b.width;
+				out[3] = b.height;
+			}
+			out[4] = s->radius * data->scale;
+			out[5] = s->opacity;
+		}
 		fx_render_pass_add_blur(fx_pass, &blur_options);
 		break;
 	}

@@ -239,6 +239,7 @@ struct fx_renderer {
 		struct blur_shader blur2;
 		struct blur_effects_shader blur_effects;
 		struct glass_shader glass;
+		struct glass_field_shader glass_field;
 		struct output_shader output;
 	} shaders;
 
