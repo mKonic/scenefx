@@ -1179,6 +1179,16 @@ void wlr_scene_blur_set_alpha(struct wlr_scene_blur *blur, float alpha) {
 	scene_node_update(&blur->node, NULL);
 }
 
+void wlr_scene_blur_set_refraction(struct wlr_scene_blur *blur, float refraction, float thickness) {
+	if (blur->refraction == refraction && blur->refraction_thickness == thickness) {
+		return;
+	}
+
+	blur->refraction = refraction;
+	blur->refraction_thickness = thickness;
+	scene_node_update(&blur->node, NULL);
+}
+
 void wlr_scene_blur_set_strength(struct wlr_scene_blur *blur, float strength) {
 	if (blur->strength == strength) {
 		return;
@@ -2229,6 +2239,8 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
 			.blur_data = &scene->blur_data,
 			.ignore_transparent = mask != NULL,
 			.blur_strength = blur->strength,
+			.refraction = blur->refraction * data->scale,
+			.refraction_thickness = blur->refraction_thickness * data->scale,
 		};
 		fx_render_pass_add_blur(fx_pass, &blur_options);
 		break;

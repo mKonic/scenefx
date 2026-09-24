@@ -91,6 +91,10 @@ struct fx_render_blur_pass_options {
 	float blur_strength;
 	struct fx_corner_fradii corners;
 	struct clipped_fregion clipped_region;
+	// Liquid Glass: bend the background by up to `refraction` pixels within
+	// `refraction_thickness` of the edge. 0 draws it flat, as before.
+	float refraction;
+	float refraction_thickness;
 };
 
 struct fx_gles_render_pass *fx_get_render_pass(struct wlr_render_pass *render_pass);

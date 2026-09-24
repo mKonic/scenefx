@@ -178,6 +178,7 @@ struct wlr_scene_blur {
 
 	float strength;
 	float alpha;
+	float refraction, refraction_thickness;
 
 	bool should_only_blur_bottom_layer;
 
@@ -660,6 +661,14 @@ struct wlr_scene_buffer *wlr_scene_blur_get_transparency_mask_source(
  * fade-out effect.
  */
 void wlr_scene_blur_set_alpha(struct wlr_scene_blur *blur, float alpha);
+
+/**
+ * Liquid Glass: bend the background by up to `refraction` pixels near the
+ * blurred shape's edge, fading out `thickness` pixels in. The shape is the
+ * transparency mask source's alpha if there is one, else the rounded box.
+ * 0 draws it flat (the default).
+ */
+void wlr_scene_blur_set_refraction(struct wlr_scene_blur *blur, float refraction, float thickness);
 
 /**
  * Sets the blur strength from 1.0f -> 0.0f. This adjusts how strong the blur is

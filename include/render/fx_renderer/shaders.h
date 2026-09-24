@@ -176,4 +176,24 @@ struct blur_effects_shader {
 
 bool link_blur_effects_program(struct blur_effects_shader *shader);
 
+struct glass_shader {
+	GLuint program;
+	GLint proj;
+	GLint tex_proj;
+	GLint tex;
+	GLint mask;
+	GLint has_mask;
+	GLint pos_attrib;
+	GLint texel;
+	GLint box_pos;
+	GLint box_size;
+	GLint mask_src;
+	GLint radius;
+	GLint refraction;
+	GLint thickness;
+	GLint alpha;
+};
+
+bool link_glass_program(struct glass_shader *shader);
+
 #endif

@@ -14,6 +14,7 @@ shaders = [
 	'blur1.frag',
 	'blur2.frag',
 	'blur_effects.frag',
+	'glass.frag',
 ]
 
 foreach name : shaders
