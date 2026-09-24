@@ -2197,6 +2197,7 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
 			bool result = fx_render_pass_add_optimized_blur(fx_pass, &blur_options);
 			if (result) {
 				scene_blur->dirty = false;
+				scene->optimized_blur_rendered = true;
 			}
 		}
 		break;
@@ -3498,6 +3499,19 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
 
 	if (!render_gamma_lut) {
 		scene_output_state_attempt_gamma(scene_output, state);
+	}
+
+	// While it was dirty, the optimized blur kept everything below it
+	// visible to re-blur it. Content-only commits (a fullscreen game) never
+	// recompute visibility, so without this the nodes under an opaque window
+	// stay in the render list, drawn every frame and blocking direct scanout.
+	if (scene_output->scene->optimized_blur_rendered) {
+		scene_output->scene->optimized_blur_rendered = false;
+		pixman_region32_t region;
+		pixman_region32_init_rect(&region, scene_output->x, scene_output->y,
+			render_data.logical.width, render_data.logical.height);
+		scene_update_region(scene_output->scene, &region);
+		pixman_region32_fini(&region);
 	}
 
 	TRACY_MARK_FRAME;

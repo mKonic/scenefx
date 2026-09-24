@@ -126,6 +126,9 @@ struct wlr_scene {
 		bool highlight_transparent_region;
 
 		struct blur_data blur_data;
+		// An optimized blur re-rendered since visibility was last computed:
+		// what it forced visible below it can be culled again.
+		bool optimized_blur_rendered;
 	} WLR_PRIVATE;
 };
 
