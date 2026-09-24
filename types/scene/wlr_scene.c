@@ -2093,6 +2093,16 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
 		wlr_color_transfer_function_get_default_luminance(
 			WLR_COLOR_TRANSFER_FUNCTION_SRGB, &srgb_lum);
 		float luminance_multiplier = get_luminance_multiplier(&src_lum, &srgb_lum);
+		const float sdr_white = data->output->sdr_white_nits;
+		if (sdr_white > 0) {
+			// HDR content keeps its absolute luminance, relative to where
+			// SDR white sits (1.0): PQ in nits, linear as scRGB (1.0 = 80).
+			if (scene_buffer->transfer_function == WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ) {
+				luminance_multiplier = src_lum.max / sdr_white;
+			} else if (scene_buffer->transfer_function == WLR_COLOR_TRANSFER_FUNCTION_EXT_LINEAR) {
+				luminance_multiplier = 80.0f / sdr_white;
+			}
+		}
 
 		struct fx_render_texture_options tex_options = {
 			.base = (struct wlr_render_texture_options){
@@ -2554,6 +2564,30 @@ struct wlr_scene_output *wlr_scene_get_scene_output(struct wlr_scene *scene,
 	struct wlr_scene_output *scene_output =
 		wl_container_of(addon, scene_output, addon);
 	return scene_output;
+}
+
+void wlr_scene_output_set_tint(struct wlr_scene_output *scene_output,
+		float r, float g, float b) {
+	if (scene_output->tint[0] == r && scene_output->tint[1] == g && scene_output->tint[2] == b) {
+		return;
+	}
+	scene_output->tint[0] = r;
+	scene_output->tint[1] = g;
+	scene_output->tint[2] = b;
+	scene_output->sdr_white_changed = true;
+	scene_output_damage_whole(scene_output);
+	wlr_output_schedule_frame(scene_output->output);
+}
+
+void wlr_scene_output_set_sdr_white_nits(struct wlr_scene_output *scene_output,
+		float nits) {
+	if (scene_output->sdr_white_nits == nits) {
+		return;
+	}
+	scene_output->sdr_white_nits = nits;
+	scene_output->sdr_white_changed = true;
+	scene_output_damage_whole(scene_output);
+	wlr_output_schedule_frame(scene_output->output);
 }
 
 void wlr_scene_output_set_position(struct wlr_scene_output *scene_output,
@@ -3021,8 +3055,14 @@ static bool scene_output_combine_color_transforms(
 			WLR_COLOR_TRANSFER_FUNCTION_SRGB, &srgb_lum);
 		wlr_color_transfer_function_get_default_luminance(img_desc->transfer_function, &dst_lum);
 		float luminance_multiplier = get_luminance_multiplier(&srgb_lum, &dst_lum);
+		if (scene_output->sdr_white_nits > 0) {
+			// 1.0 (SDR white) is sdr_white_nits of the output's range.
+			luminance_multiplier = scene_output->sdr_white_nits / dst_lum.max;
+		}
 		for (int i = 0; i < 9; ++i) {
-			matrix[i] *= luminance_multiplier;
+			// Columns take the tint: it applies to the linear sRGB input.
+			const float tint = scene_output->tint[i % 3] > 0 ? scene_output->tint[i % 3] : 1.0f;
+			matrix[i] *= luminance_multiplier * tint;
 		}
 
 		color_matrix = wlr_color_transform_init_matrix(matrix);
@@ -3272,7 +3312,8 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
 	if ((render_gamma_lut
 			&& scene_output->gamma_lut_color_transform != scene_output->prev_gamma_lut_color_transform)
 			|| scene_output->prev_supplied_color_transform != options->color_transform
-			|| (state->committed & WLR_OUTPUT_STATE_IMAGE_DESCRIPTION)) {
+			|| (state->committed & WLR_OUTPUT_STATE_IMAGE_DESCRIPTION)
+			|| scene_output->sdr_white_changed) {
 		const struct wlr_output_image_description *output_description =
 			output_pending_image_description(output, state);
 		if (!scene_output_combine_color_transforms(scene_output, options->color_transform,
@@ -3280,6 +3321,11 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
 			wlr_buffer_unlock(buffer);
 			return false;
 		}
+		scene_output->sdr_white_changed = false;
+		// A renderer drawing through a blend buffer (HDR) starts it afresh:
+		// the whole frame, not just what changed.
+		scene_output_damage_whole(scene_output);
+		wlr_output_state_set_damage(state, &scene_output->pending_commit_damage);
 	}
 
 	scene_output->in_point++;

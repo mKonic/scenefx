@@ -11,6 +11,7 @@
 #include <wlr/util/log.h>
 #include <wlr/util/region.h>
 
+#include "render/color.h"
 #include "render/egl.h"
 #include "render/fx_renderer/fx_renderer.h"
 #include "render/fx_renderer/shaders.h"
@@ -45,6 +46,83 @@ struct fx_render_rect_options fx_render_rect_options_default(
 		},
 	};
 	return options;
+}
+
+static void render(const struct wlr_box *box, const pixman_region32_t *clip, GLint attrib);
+static void set_proj_matrix(GLint loc, float proj[9], const struct wlr_box *box);
+static void set_tex_matrix(GLint loc, enum wl_output_transform trans,
+		const struct wlr_fbox *box);
+
+static void wlr_matrix_transpose(float out[static 9], const float in[static 9]) {
+	for (int r = 0; r < 3; r++) {
+		for (int c = 0; c < 3; c++) {
+			out[c * 3 + r] = in[r * 3 + c];
+		}
+	}
+}
+
+static int output_tf_from_wlr(enum wlr_color_transfer_function tf) {
+	switch (tf) {
+	case WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ:
+		return 1;
+	case WLR_COLOR_TRANSFER_FUNCTION_EXT_LINEAR:
+		return 2;
+	case WLR_COLOR_TRANSFER_FUNCTION_SRGB:
+		return 3;
+	case WLR_COLOR_TRANSFER_FUNCTION_GAMMA22:
+	case WLR_COLOR_TRANSFER_FUNCTION_BT1886:
+		return 0;
+	}
+	return 0;
+}
+
+static void take_color_transform(struct fx_gles_render_pass *pass,
+		struct wlr_color_transform *tr, bool *lut) {
+	switch (tr->type) {
+	case COLOR_TRANSFORM_MATRIX:;
+		struct wlr_color_transform_matrix *m = wl_container_of(tr, m, base);
+		wlr_matrix_multiply(pass->output_matrix, m->matrix, pass->output_matrix);
+		break;
+	case COLOR_TRANSFORM_INVERSE_EOTF:
+		pass->output_tf = output_tf_from_wlr(wlr_color_transform_inverse_eotf_from_base(tr)->tf);
+		break;
+	case COLOR_TRANSFORM_PIPELINE:;
+		struct wlr_color_transform_pipeline *p = wl_container_of(tr, p, base);
+		for (size_t i = 0; i < p->len; i++) {
+			take_color_transform(pass, p->transforms[i], lut);
+		}
+		break;
+	case COLOR_TRANSFORM_LUT_3X1D:
+	case COLOR_TRANSFORM_LCMS2:
+		*lut = true;
+		break;
+	}
+}
+
+void fx_render_pass_set_color_transform(struct fx_gles_render_pass *pass,
+		struct wlr_color_transform *transform) {
+	wlr_matrix_identity(pass->output_matrix);
+	pass->output_tf = 0;
+	pass->two_pass = false;
+	if (transform == NULL) {
+		return;
+	}
+	bool lut = false;
+	take_color_transform(pass, transform, &lut);
+	if (lut) {
+		// Gamma ramps and ICC profiles have no GLES path yet: drawn as if
+		// they weren't there, as before this renderer took transforms.
+		static bool logged = false;
+		if (!logged) {
+			wlr_log(WLR_INFO, "fx_renderer: output color LUTs are not applied");
+			logged = true;
+		}
+	}
+	float identity[9];
+	wlr_matrix_identity(identity);
+	bool plain = memcmp(pass->output_matrix, identity, sizeof(identity)) == 0 &&
+		(pass->output_tf == 0 || pass->output_tf == 3);
+	pass->two_pass = !plain;
 }
 
 bool fx_render_pass_init_offscreen_buffers(struct wlr_render_pass *render_pass,
@@ -82,17 +160,75 @@ bool fx_render_pass_init_offscreen_buffers(struct wlr_render_pass *render_pass,
 			&pass->fx_offscreen_buffers->optimized_blur_buffer, &failed);
 	fx_framebuffer_get_or_create_custom(renderer, output->allocator, width, height, false,
 			&pass->fx_offscreen_buffers->optimized_no_blur_buffer, &failed);
-
-	// Bind back to the default buffer
-	fx_framebuffer_bind(pass->buffer);
+	if (pass->two_pass) {
+		fx_framebuffer_get_or_create_half_float(renderer, width, height,
+				&pass->fx_offscreen_buffers->blend_buffer, &failed);
+	}
 
 	if (failed) {
+		fx_framebuffer_bind(pass->buffer);
 		fx_offscreen_buffers_destroy(pass->fx_offscreen_buffers);
 		pass->fx_offscreen_buffers = NULL;
+		pass->two_pass = false;
 		wlr_log(WLR_ERROR, "Failed to create effect framebuffers");
 		return false;
 	}
+
+	// From here on the frame is drawn into the blend buffer; submit
+	// converts it into the output's buffer.
+	if (pass->two_pass) {
+		pass->output_buffer = pass->buffer;
+		pass->buffer = pass->fx_offscreen_buffers->blend_buffer;
+	}
+
+	// Bind back to the default buffer
+	fx_framebuffer_bind(pass->buffer);
 	return true;
+}
+
+static void render_output_pass(struct fx_gles_render_pass *pass) {
+	struct fx_renderer *renderer = pass->buffer->renderer;
+	struct output_shader *shader = &renderer->shaders.output;
+	struct fx_framebuffer *blend = pass->buffer;
+	const int width = pass->output_buffer->buffer->width;
+	const int height = pass->output_buffer->buffer->height;
+
+	fx_framebuffer_bind(pass->output_buffer);
+	glViewport(0, 0, width, height);
+	glDisable(GL_BLEND);
+	glDisable(GL_STENCIL_TEST);
+	glDisable(GL_SCISSOR_TEST);
+
+	glUseProgram(shader->program);
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, blend->tex);
+	glUniform1i(shader->tex, 0);
+	// wlroots matrices are row-major; GLSL reads column-major.
+	float transposed[9];
+	wlr_matrix_transpose(transposed, pass->output_matrix);
+	glUniformMatrix3fv(shader->matrix, 1, GL_FALSE, transposed);
+	glUniform1i(shader->out_tf, pass->output_tf);
+
+	struct wlr_box box = { 0, 0, width, height };
+	struct wlr_fbox src = { 0, 0, 1, 1 };
+	set_proj_matrix(shader->proj, pass->projection_matrix, &box);
+	set_tex_matrix(shader->tex_proj, WL_OUTPUT_TRANSFORM_NORMAL, &src);
+	render(&box, NULL, shader->pos_attrib);
+
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glEnable(GL_BLEND);
+
+	// Say what these pixels are, so copies (screenshots, screen sharing)
+	// can turn them back into what SDR content looks like.
+	struct fx_framebuffer *out = pass->output_buffer;
+	out->encoded_tf = 0;
+	if (pass->output_tf == 1 || pass->output_tf == 2) {
+		matrix_invert(out->encoded_matrix, pass->output_matrix);
+		out->encoded_tf = pass->output_tf;
+	}
+
+	pass->buffer = pass->output_buffer;
+	pass->output_buffer = NULL;
 }
 
 ///
@@ -115,6 +251,10 @@ static bool render_pass_submit(struct wlr_render_pass *wlr_pass) {
 
 	TRACY_BOTH_ZONES_START(pass->buffer->renderer);
 	push_fx_debug(renderer);
+
+	if (pass->two_pass && pass->output_buffer != NULL) {
+		render_output_pass(pass);
+	}
 
 	if (timer) {
 		// clear disjoint flag
@@ -476,6 +616,43 @@ void fx_render_pass_add_texture(struct fx_gles_render_pass *pass,
 	glUniform1f(shader->alpha, alpha);
 
 	glUniform1f(shader->discard_transparent, fx_options->discard_transparent);
+
+	// Content in another transfer function or gamut (HDR) is converted to
+	// what the frame is drawn in; plain SDR is drawn as is.
+	int hdr_tf = 0;
+	switch (options->transfer_function) {
+	case WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ:
+		hdr_tf = 1;
+		break;
+	case WLR_COLOR_TRANSFER_FUNCTION_EXT_LINEAR:
+		hdr_tf = 2;
+		break;
+	default:
+		break;
+	}
+	float prim[9];
+	float hdr_lum = options->luminance_multiplier != NULL ? *options->luminance_multiplier : 1.0f;
+	wlr_matrix_identity(prim);
+	if (options->transfer_function == 0 && texture->buffer != NULL && texture->buffer->encoded_tf != 0) {
+		// A copy of an HDR screen's buffer (a screenshot): back to SDR.
+		hdr_tf = texture->buffer->encoded_tf;
+		memcpy(prim, texture->buffer->encoded_matrix, sizeof(prim));
+		hdr_lum = 1.0f;
+	} else if (options->primaries != NULL) {
+		struct wlr_color_primaries srgb;
+		wlr_color_primaries_from_named(&srgb, WLR_COLOR_NAMED_PRIMARIES_SRGB);
+		wlr_color_primaries_transform_absolute_colorimetric(options->primaries, &srgb, prim);
+		float identity[9];
+		wlr_matrix_identity(identity);
+		if (hdr_tf == 0 && memcmp(prim, identity, sizeof(prim)) != 0) {
+			hdr_tf = 3; // SDR in another gamut: decoded as gamma 2.2
+		}
+	}
+	float transposed_prim[9];
+	wlr_matrix_transpose(transposed_prim, prim);
+	glUniform1i(shader->hdr_tf, hdr_tf);
+	glUniformMatrix3fv(shader->hdr_prim, 1, GL_FALSE, transposed_prim);
+	glUniform1f(shader->hdr_lum, hdr_lum);
 
 	if (use_effects) {
 		struct fx_corner_fradii corners = fx_options->corners;
@@ -1400,6 +1577,7 @@ struct fx_gles_render_pass *fx_begin_buffer_pass(struct fx_framebuffer *buffer,
 
 	wlr_render_pass_init(&pass->base, &render_pass_impl);
 	wlr_buffer_lock(wlr_buffer);
+	buffer->encoded_tf = 0; // until an HDR output pass says otherwise
 	pass->buffer = buffer;
 	pass->timer = timer;
 	pass->prev_ctx = *prev_ctx;

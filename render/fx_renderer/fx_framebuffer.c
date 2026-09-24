@@ -117,6 +117,17 @@ void fx_framebuffer_get_or_create_custom(struct fx_renderer *renderer,
 	fx_framebuffer_get_fbo(*fx_framebuffer);
 }
 
+struct fx_framebuffer *fx_framebuffer_find(struct fx_renderer *renderer,
+		struct wlr_buffer *wlr_buffer) {
+	struct wlr_addon *addon =
+		wlr_addon_find(&wlr_buffer->addons, renderer, &buffer_addon_impl);
+	if (!addon) {
+		return NULL;
+	}
+	struct fx_framebuffer *buffer = wl_container_of(addon, buffer, addon);
+	return buffer;
+}
+
 struct fx_framebuffer *fx_framebuffer_get_or_create(struct fx_renderer *renderer,
 		struct wlr_buffer *wlr_buffer) {
 	struct wlr_addon *addon =
@@ -193,3 +204,93 @@ void fx_framebuffer_destroy(struct fx_framebuffer *fx_buffer) {
 	free(fx_buffer);
 }
 
+
+// A framebuffer that only lives in GL (no dmabuf): a color texture with
+// a stencil, sampled through `tex`. The wlr_buffer only carries the size
+// and the addon that frees it.
+struct gl_only_buffer {
+	struct wlr_buffer base;
+};
+
+static void gl_only_buffer_destroy(struct wlr_buffer *wlr_buffer) {
+	struct gl_only_buffer *buffer = wl_container_of(wlr_buffer, buffer, base);
+	free(buffer);
+}
+
+static const struct wlr_buffer_impl gl_only_buffer_impl = {
+	.destroy = gl_only_buffer_destroy,
+};
+
+void fx_framebuffer_get_or_create_half_float(struct fx_renderer *renderer,
+		int width, int height, struct fx_framebuffer **fx_framebuffer, bool *failed) {
+	fx_framebuffer_get_or_create_gl(renderer, width, height, 0x881A /* GL_RGBA16F */,
+		fx_framebuffer, failed);
+}
+
+void fx_framebuffer_get_or_create_gl(struct fx_renderer *renderer, int width, int height,
+		GLenum internal_format, struct fx_framebuffer **fx_framebuffer, bool *failed) {
+	if (*failed) {
+		return;
+	}
+	if (*fx_framebuffer != NULL) {
+		struct wlr_buffer *wlr_buffer = (*fx_framebuffer)->buffer;
+		if (wlr_buffer->width == width && wlr_buffer->height == height) {
+			return;
+		}
+		wlr_buffer_drop(wlr_buffer);
+		*fx_framebuffer = NULL;
+	}
+
+	struct gl_only_buffer *wlr_buffer = calloc(1, sizeof(*wlr_buffer));
+	struct fx_framebuffer *buffer = calloc(1, sizeof(*buffer));
+	if (wlr_buffer == NULL || buffer == NULL) {
+		free(wlr_buffer);
+		free(buffer);
+		*failed = true;
+		return;
+	}
+	wlr_buffer_init(&wlr_buffer->base, &gl_only_buffer_impl, width, height);
+	buffer->buffer = &wlr_buffer->base;
+	buffer->renderer = renderer;
+	buffer->image = EGL_NO_IMAGE_KHR;
+
+	push_fx_debug(renderer);
+	glGenTextures(1, &buffer->tex);
+	glBindTexture(GL_TEXTURE_2D, buffer->tex);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	// GLES 3 sized formats (RGBA16F renderable through
+	// EXT_color_buffer_half_float).
+	GLenum type = GL_UNSIGNED_BYTE;
+	if (internal_format == 0x881A /* GL_RGBA16F */) {
+		type = GL_HALF_FLOAT_OES;
+	} else if (internal_format == 0x8059 /* GL_RGB10_A2 */) {
+		type = 0x8368; // GL_UNSIGNED_INT_2_10_10_10_REV
+	}
+	glTexImage2D(GL_TEXTURE_2D, 0, internal_format, width, height, 0, GL_RGBA, type, NULL);
+	glBindTexture(GL_TEXTURE_2D, 0);
+
+	glGenFramebuffers(1, &buffer->fbo);
+	glBindFramebuffer(GL_FRAMEBUFFER, buffer->fbo);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, buffer->tex, 0);
+	glGenRenderbuffers(1, &buffer->sb);
+	glBindRenderbuffer(GL_RENDERBUFFER, buffer->sb);
+	glRenderbufferStorage(GL_RENDERBUFFER, GL_STENCIL_INDEX8, width, height);
+	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, buffer->sb);
+	GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	pop_fx_debug(renderer);
+
+	wlr_addon_init(&buffer->addon, &buffer->buffer->addons, renderer, &buffer_addon_impl);
+	wl_list_insert(&renderer->buffers, &buffer->link);
+
+	if (status != GL_FRAMEBUFFER_COMPLETE) {
+		wlr_log(WLR_ERROR, "GL framebuffer 0x%x incomplete (0x%x)", internal_format, status);
+		wlr_buffer_drop(buffer->buffer);
+		*failed = true;
+		return;
+	}
+	*fx_framebuffer = buffer;
+}

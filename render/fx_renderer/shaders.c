@@ -21,6 +21,7 @@
 #include "blur2_frag_src.h"
 #include "blur_effects_frag_src.h"
 #include "glass_frag_src.h"
+#include "output_frag_src.h"
 
 GLuint compile_shader(GLuint type, const GLchar *src) {
 	GLuint shader = glCreateShader(type);
@@ -264,6 +265,10 @@ bool link_tex_program(struct tex_shader *shader, enum fx_tex_shader_source sourc
 
 	shader->discard_transparent = glGetUniformLocation(prog, "discard_transparent");
 
+	shader->hdr_tf = glGetUniformLocation(prog, "hdr_tf");
+	shader->hdr_prim = glGetUniformLocation(prog, "hdr_prim");
+	shader->hdr_lum = glGetUniformLocation(prog, "hdr_lum");
+
 	if (!effects) {
 		return true;
 	}
@@ -381,5 +386,20 @@ bool link_blur_effects_program(struct blur_effects_shader *shader) {
 	shader->contrast = glGetUniformLocation(prog, "contrast");
 	shader->saturation = glGetUniformLocation(prog, "saturation");
 
+	return true;
+}
+
+bool link_output_program(struct output_shader *shader) {
+	GLuint prog;
+	shader->program = prog = link_program(output_frag_src);
+	if (!shader->program) {
+		return false;
+	}
+	shader->proj = glGetUniformLocation(prog, "proj");
+	shader->tex_proj = glGetUniformLocation(prog, "tex_proj");
+	shader->tex = glGetUniformLocation(prog, "tex");
+	shader->pos_attrib = glGetAttribLocation(prog, "pos");
+	shader->matrix = glGetUniformLocation(prog, "matrix");
+	shader->out_tf = glGetUniformLocation(prog, "out_tf");
 	return true;
 }

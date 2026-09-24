@@ -99,6 +99,7 @@ static inline void free_shaders(struct fx_renderer *renderer) {
 	glDeleteProgram(renderer->shaders.blur2.program);
 	glDeleteProgram(renderer->shaders.blur_effects.program);
 	glDeleteProgram(renderer->shaders.glass.program);
+	glDeleteProgram(renderer->shaders.output.program);
 	pop_fx_debug(renderer);
 }
 
@@ -172,6 +173,7 @@ static struct wlr_render_pass *begin_buffer_pass(struct wlr_renderer *wlr_render
 		TRACY_BOTH_ZONES_END_FAIL;
 		return NULL;
 	}
+	fx_render_pass_set_color_transform(pass, options->color_transform);
 
 	TRACY_BOTH_ZONES_END;
 
@@ -441,6 +443,10 @@ static bool link_shaders(struct fx_renderer *renderer) {
 		wlr_log(WLR_ERROR, "Could not link glass shader");
 		goto error;
 	}
+	if (!link_output_program(&renderer->shaders.output)) {
+		wlr_log(WLR_ERROR, "Could not link output shader");
+		goto error;
+	}
 
 	return true;
 
@@ -465,7 +471,8 @@ struct wlr_renderer *fx_renderer_create_egl(struct wlr_egl *egl) {
 		return NULL;
 	}
 	wlr_renderer_init(&renderer->wlr_renderer, &renderer_impl, WLR_BUFFER_CAP_DMABUF);
-	renderer->wlr_renderer.features.output_color_transform = false;
+	// A second pass through a half-float blend buffer (fx_pass.c).
+	renderer->wlr_renderer.features.output_color_transform = true;
 
 	wl_list_init(&renderer->buffers);
 	wl_list_init(&renderer->textures);

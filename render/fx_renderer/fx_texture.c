@@ -9,6 +9,8 @@
 #include "render/fx_renderer/fx_renderer.h"
 #include "render/pixel_format.h"
 #include "render/egl.h"
+#include "render/pass.h"
+#include "scenefx/render/pass.h"
 
 static const struct wlr_texture_impl texture_impl;
 
@@ -154,9 +156,119 @@ static bool fx_texture_bind(struct fx_texture *texture) {
 	return true;
 }
 
+// Pixels of an HDR screen's buffer read as SDR: drawn (converted) into a
+// temporary framebuffer first, then read from there.
+static bool read_hdr_as_sdr(struct fx_texture *texture,
+		const struct wlr_texture_read_pixels_options *options, GLenum internal_format) {
+	struct fx_renderer *renderer = texture->fx_renderer;
+	const int width = texture->wlr_texture.width, height = texture->wlr_texture.height;
+	struct fx_framebuffer *tmp = NULL;
+	bool failed = false;
+
+	struct wlr_egl_context prev_ctx;
+	if (!wlr_egl_make_current(renderer->egl, &prev_ctx)) {
+		return false;
+	}
+	fx_framebuffer_get_or_create_gl(renderer, width, height, internal_format, &tmp, &failed);
+	wlr_egl_restore_context(&prev_ctx);
+	if (failed) {
+		return false;
+	}
+
+	struct wlr_egl_context pass_ctx;
+	wlr_egl_make_current(renderer->egl, &pass_ctx);
+	struct fx_gles_render_pass *pass = fx_begin_buffer_pass(tmp, &pass_ctx, NULL, NULL, 0);
+	bool ok = pass != NULL;
+	if (ok) {
+		const struct wlr_render_texture_options base = {
+			.texture = &texture->wlr_texture,
+			.dst_box = { .width = width, .height = height },
+			.blend_mode = WLR_RENDER_BLEND_MODE_NONE,
+		};
+		struct fx_render_texture_options tex_options = fx_render_texture_options_default(&base);
+		fx_render_pass_add_texture(pass, &tex_options);
+		ok = wlr_render_pass_submit(&pass->base);
+	}
+
+	if (ok) {
+		// Read as RGBA (R in the lowest byte, or the lowest 10 bits), which
+		// any GLES takes from a texture framebuffer, then pack each row the
+		// way the format asks.
+		struct wlr_box src;
+		wlr_texture_read_pixels_options_get_src_box(options, &texture->wlr_texture, &src);
+		const bool deep = internal_format == 0x8059;
+		unsigned char *p = wlr_texture_read_pixel_options_get_data(options);
+		uint32_t *row = malloc(sizeof(uint32_t) * src.width);
+		ok = row != NULL;
+
+		wlr_egl_make_current(renderer->egl, &prev_ctx);
+		glBindFramebuffer(GL_FRAMEBUFFER, tmp->fbo);
+		glPixelStorei(GL_PACK_ALIGNMENT, 1);
+		glGetError();
+		for (int32_t i = 0; ok && i < src.height; ++i) {
+			glReadPixels(src.x, src.y + i, src.width, 1, GL_RGBA,
+				deep ? 0x8368 /* GL_UNSIGNED_INT_2_10_10_10_REV */ : GL_UNSIGNED_BYTE, row);
+			unsigned char *out = p + i * options->stride;
+			for (int32_t x = 0; x < src.width; ++x) {
+				const uint32_t v = row[x];
+				switch (options->format) {
+				case DRM_FORMAT_XBGR8888:
+				case DRM_FORMAT_ABGR8888:
+				case DRM_FORMAT_XBGR2101010:
+				case DRM_FORMAT_ABGR2101010:
+					((uint32_t *)out)[x] = v;
+					break;
+				case DRM_FORMAT_XRGB8888:
+				case DRM_FORMAT_ARGB8888:
+					((uint32_t *)out)[x] = (v & 0xFF00FF00u) | ((v & 0xFFu) << 16) | ((v >> 16) & 0xFFu);
+					break;
+				case DRM_FORMAT_XRGB2101010:
+				case DRM_FORMAT_ARGB2101010:
+					((uint32_t *)out)[x] = (v & 0xC00FFC00u) | ((v & 0x3FFu) << 20) | ((v >> 20) & 0x3FFu);
+					break;
+				case DRM_FORMAT_BGR888: // memory: R, G, B
+					out[x * 3] = v & 0xFF;
+					out[x * 3 + 1] = (v >> 8) & 0xFF;
+					out[x * 3 + 2] = (v >> 16) & 0xFF;
+					break;
+				case DRM_FORMAT_RGB888: // memory: B, G, R
+					out[x * 3] = (v >> 16) & 0xFF;
+					out[x * 3 + 1] = (v >> 8) & 0xFF;
+					out[x * 3 + 2] = v & 0xFF;
+					break;
+				}
+			}
+		}
+		free(row);
+		ok = glGetError() == GL_NO_ERROR;
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		wlr_egl_restore_context(&prev_ctx);
+	}
+	wlr_buffer_drop(tmp->buffer);
+	return ok;
+}
+
 static bool fx_texture_read_pixels(struct wlr_texture *wlr_texture,
 		const struct wlr_texture_read_pixels_options *options) {
 	struct fx_texture *texture = fx_get_texture(wlr_texture);
+
+	if (texture->buffer != NULL && texture->buffer->encoded_tf != 0) {
+		const bool deep = options->format == DRM_FORMAT_XRGB2101010 ||
+			options->format == DRM_FORMAT_ARGB2101010 ||
+			options->format == DRM_FORMAT_XBGR2101010 ||
+			options->format == DRM_FORMAT_ABGR2101010;
+		const bool shallow = options->format == DRM_FORMAT_XRGB8888 ||
+			options->format == DRM_FORMAT_ARGB8888 ||
+			options->format == DRM_FORMAT_XBGR8888 ||
+			options->format == DRM_FORMAT_ABGR8888 ||
+			options->format == DRM_FORMAT_BGR888 ||
+			options->format == DRM_FORMAT_RGB888;
+		if (!deep && !shallow) {
+			wlr_log(WLR_ERROR, "Cannot read an HDR buffer as 0x%"PRIX32, options->format);
+			return false;
+		}
+		return read_hdr_as_sdr(texture, options, deep ? 0x8059 /* GL_RGB10_A2 */ : 0x8058 /* GL_RGBA8 */);
+	}
 
 	struct wlr_box src;
 	wlr_texture_read_pixels_options_get_src_box(options, wlr_texture, &src);
@@ -411,6 +523,21 @@ struct wlr_texture *fx_texture_from_buffer(struct wlr_renderer *wlr_renderer,
 	uint32_t format;
 	size_t stride;
 	struct wlr_dmabuf_attributes dmabuf;
+	// A GL-only framebuffer (the HDR blend buffer): its texture, borrowed.
+	struct fx_framebuffer *gl_only = fx_framebuffer_find(renderer, buffer);
+	if (gl_only != NULL && gl_only->image == EGL_NO_IMAGE_KHR && gl_only->tex) {
+		struct fx_texture *texture = fx_texture_create(renderer, buffer->width, buffer->height);
+		if (texture == NULL) {
+			return NULL;
+		}
+		texture->target = GL_TEXTURE_2D;
+		texture->buffer = gl_only;
+		texture->drm_format = DRM_FORMAT_INVALID;
+		texture->has_alpha = true;
+		texture->tex = gl_only->tex;
+		wlr_buffer_lock(buffer);
+		return &texture->wlr_texture;
+	}
 	if (wlr_buffer_get_dmabuf(buffer, &dmabuf)) {
 		return fx_texture_from_dmabuf(&renderer->wlr_renderer, buffer, &dmabuf);
 	} else if (wlr_buffer_begin_data_ptr_access(buffer,

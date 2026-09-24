@@ -47,11 +47,46 @@ uniform float clip_radius_bottom_right;
 
 uniform bool discard_transparent;
 
+// Content that isn't plain SDR (an HDR video, a game's HDR10 swapchain) is
+// decoded to linear light, into sRGB primaries, scaled so 1.0 is SDR white,
+// and encoded back to gamma 2.2 like everything else, above 1.0 where it's
+// brighter. 0: SDR, drawn as is; 1: PQ; 2: linear; 3: gamma 2.2 in
+// another gamut.
+uniform int hdr_tf;
+uniform highp mat3 hdr_prim;
+uniform highp float hdr_lum;
+
+highp vec3 pq_decode(highp vec3 e) {
+	const highp float m1 = 0.1593017578125;
+	const highp float m2 = 78.84375;
+	const highp float c1 = 0.8359375;
+	const highp float c2 = 18.8515625;
+	const highp float c3 = 18.6875;
+	highp vec3 p = pow(clamp(e, 0.0, 1.0), vec3(1.0 / m2));
+	return pow(max(p - c1, 0.0) / (c2 - c3 * p), vec3(1.0 / m1));
+}
+
+// Half precision (these shaders' default) is visibly wrong for PQ.
+vec4 hdr_decode(vec4 c) {
+	if (hdr_tf == 0) {
+		return c;
+	}
+	highp vec3 rgb = c.a > 0.0 ? c.rgb / c.a : vec3(0.0);
+	if (hdr_tf == 1) {
+		rgb = pq_decode(rgb);
+	} else if (hdr_tf == 3) {
+		rgb = pow(rgb, vec3(2.2));
+	}
+	rgb = hdr_prim * rgb * hdr_lum;
+	rgb = sign(rgb) * pow(abs(rgb), vec3(1.0 / 2.2));
+	return vec4(rgb * c.a, c.a);
+}
+
 vec4 sample_texture() {
 #if SOURCE == SOURCE_TEXTURE_RGBA || SOURCE == SOURCE_TEXTURE_EXTERNAL
-	return texture2D(tex, v_texcoord);
+	return hdr_decode(texture2D(tex, v_texcoord));
 #elif SOURCE == SOURCE_TEXTURE_RGBX
-	return vec4(texture2D(tex, v_texcoord).rgb, 1.0);
+	return hdr_decode(vec4(texture2D(tex, v_texcoord).rgb, 1.0));
 #endif
 }
 

@@ -47,8 +47,43 @@ struct fx_framebuffer {
 	GLuint tex;
 	GLuint sb; // Stencil
 
+	// Written by the HDR output pass: the pixels are the screen's signal
+	// (encoded_tf as output.frag's out_tf, 0 for plain SDR), and
+	// `encoded_matrix` takes their linear light back to SDR's (1.0 = SDR
+	// white, sRGB primaries). Copies (screenshots) are converted back.
+	int encoded_tf;
+	float encoded_matrix[9];
+
 	struct wlr_addon addon;
 };
+
+struct fx_gles_render_pass;
+struct wlr_color_transform;
+/**
+ * Works out whether an output color transform needs the second pass (a plain
+ * gamma 2.2 or sRGB encoding doesn't: that's how the frame is drawn anyway).
+ */
+void fx_render_pass_set_color_transform(struct fx_gles_render_pass *pass,
+		struct wlr_color_transform *transform);
+
+/**
+ * The framebuffer already made for a buffer, if any.
+ */
+struct fx_framebuffer *fx_framebuffer_find(struct fx_renderer *renderer,
+		struct wlr_buffer *wlr_buffer);
+
+/**
+ * A GL-only half-float framebuffer (the HDR blend buffer), `tex` sampleable.
+ */
+void fx_framebuffer_get_or_create_half_float(struct fx_renderer *renderer,
+		int width, int height, struct fx_framebuffer **fx_framebuffer, bool *failed);
+
+/**
+ * A GL-only framebuffer of the given sized internal format (GL_RGBA8,
+ * GL_RGB10_A2, GL_RGBA16F).
+ */
+void fx_framebuffer_get_or_create_gl(struct fx_renderer *renderer, int width, int height,
+		GLenum internal_format, struct fx_framebuffer **fx_framebuffer, bool *failed);
 
 /**
  * Should only be used with custom fbs.
@@ -204,6 +239,7 @@ struct fx_renderer {
 		struct blur_shader blur2;
 		struct blur_effects_shader blur_effects;
 		struct glass_shader glass;
+		struct output_shader output;
 	} shaders;
 
 	struct wl_list buffers; // fx_framebuffer.link

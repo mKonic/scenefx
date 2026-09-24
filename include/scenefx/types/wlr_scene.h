@@ -313,6 +313,14 @@ struct wlr_scene_output {
 		struct wlr_color_transform *prev_supplied_color_transform;
 		struct wlr_color_transform *combined_color_transform;
 
+		// SDR content's white on an HDR output, in nits (0: the default
+		// reference white), and whether it changed since the last frame.
+		float sdr_white_nits;
+		bool sdr_white_changed;
+		// A white point tint in linear light on an HDR output (night light;
+		// on SDR outputs that's the hardware gamma table's job). 0: none.
+		float tint[3];
+
 		struct wl_listener output_commit;
 		struct wl_listener output_damage;
 		struct wl_listener output_needs_frame;
@@ -862,6 +870,22 @@ void wlr_scene_output_destroy(struct wlr_scene_output *scene_output);
  */
 void wlr_scene_output_set_position(struct wlr_scene_output *scene_output,
 	int lx, int ly);
+/**
+ * How bright SDR content's white is on this output when it is in HDR (an
+ * image description with an absolute transfer function such as PQ), in nits,
+ * as Windows' "SDR content brightness". HDR content keeps its absolute
+ * luminance. 0 restores the default (the transfer function's reference white).
+ */
+void wlr_scene_output_set_sdr_white_nits(struct wlr_scene_output *scene_output,
+	float nits);
+
+/**
+ * Multiplies the output's colors in linear light (a warmer white for night
+ * light) when it has an image description (HDR), where a gamma table on the
+ * encoded signal would distort them. 1, 1, 1 for none.
+ */
+void wlr_scene_output_set_tint(struct wlr_scene_output *scene_output,
+	float r, float g, float b);
 
 struct wlr_scene_output_state_options {
 	struct wlr_scene_timer *timer;

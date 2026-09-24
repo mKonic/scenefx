@@ -25,6 +25,14 @@ struct fx_gles_render_pass {
 	// NULL when no advanced effects like blur is being used in the current pass.
 	// Call `fx_render_pass_init_offscreen_buffers` to use advanced effects.
 	struct fx_offscreen_buffers *fx_offscreen_buffers;
+
+	// The output's color transform needs a second pass (HDR): the frame is
+	// drawn into the output's half-float blend buffer, then converted into
+	// `output_buffer` with `output_matrix` and `output_tf` at submit.
+	bool two_pass;
+	struct fx_framebuffer *output_buffer;
+	float output_matrix[9];
+	int output_tf; // as output.frag's out_tf
 };
 
 struct fx_gradient {

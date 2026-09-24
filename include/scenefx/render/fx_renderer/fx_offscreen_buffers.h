@@ -24,6 +24,9 @@ struct fx_offscreen_buffers {
 	struct fx_framebuffer *effects_buffer;
 	// Swap buffer used for effects
 	struct fx_framebuffer *effects_buffer_swapped;
+	// HDR (or any output color transform): the frame is drawn here in
+	// half-float, then converted into the output's buffer.
+	struct fx_framebuffer *blend_buffer;
 };
 
 void fx_offscreen_buffers_destroy(struct fx_offscreen_buffers *fbos);
