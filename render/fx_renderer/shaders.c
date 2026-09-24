@@ -113,8 +113,8 @@ void uniform_corner_radii_set(const struct shader_corner_radii *uniform,
 // Shaders
 
 bool link_quad_program(struct quad_shader *shader, bool clip) {
-	GLchar quad_src_part[2048];
-	GLchar quad_src[4096];
+	GLchar quad_src_part[4096];
+	GLchar quad_src[16384];
 	snprintf(quad_src_part, sizeof(quad_src_part),
 		quad_frag_src, clip);
 	snprintf(quad_src, sizeof(quad_src),
@@ -144,8 +144,8 @@ bool link_quad_program(struct quad_shader *shader, bool clip) {
 }
 
 bool link_quad_grad_program(struct quad_grad_shader *shader, int max_len) {
-	GLchar quad_src_part[2048];
-	GLchar quad_src[4096];
+	GLchar quad_src_part[4096];
+	GLchar quad_src[16384];
 	snprintf(quad_src_part, sizeof(quad_src_part),
 		quad_grad_frag_src, max_len);
 	snprintf(quad_src, sizeof(quad_src),
@@ -174,7 +174,7 @@ bool link_quad_grad_program(struct quad_grad_shader *shader, int max_len) {
 }
 
 bool link_quad_round_program(struct quad_round_shader *shader) {
-	GLchar quad_src[4096];
+	GLchar quad_src[8192];
 	snprintf(quad_src, sizeof(quad_src), "%s\n%s", quad_round_frag_src,
 		corner_alpha_frag_src);
 
@@ -205,8 +205,8 @@ bool link_quad_round_program(struct quad_round_shader *shader) {
 }
 
 bool link_quad_grad_round_program(struct quad_grad_round_shader *shader, int max_len) {
-	GLchar quad_src_part[2048];
-	GLchar quad_src[8192];
+	GLchar quad_src_part[4096];
+	GLchar quad_src[16384];
 	snprintf(quad_src_part, sizeof(quad_src_part),
 		quad_grad_round_frag_src, max_len);
 	snprintf(quad_src, sizeof(quad_src),
@@ -244,8 +244,8 @@ bool link_quad_grad_round_program(struct quad_grad_round_shader *shader, int max
 
 bool link_tex_program(struct tex_shader *shader, enum fx_tex_shader_source source,
 		bool effects) {
-	GLchar frag_src_part[4096];
-	GLchar frag_src[8192];
+	GLchar frag_src_part[8192];
+	GLchar frag_src[16384];
 	snprintf(frag_src_part, sizeof(frag_src_part),
 		tex_frag_src, source, effects);
 	snprintf(frag_src, sizeof(frag_src),
@@ -290,7 +290,7 @@ bool link_tex_program(struct tex_shader *shader, enum fx_tex_shader_source sourc
 }
 
 bool link_box_shadow_program(struct box_shadow_shader *shader) {
-	GLchar shadow_src[8192];
+	GLchar shadow_src[16384];
 	snprintf(shadow_src, sizeof(shadow_src), "%s\n%s", box_shadow_frag_src,
 		corner_alpha_frag_src);
 

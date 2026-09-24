@@ -376,6 +376,17 @@ static void stencil_mask_fini(void) {
 }
 
 static void render(const struct wlr_box *box, const pixman_region32_t *clip, GLint attrib) {
+	// Where fragments are, in highp (see common.vert's v_frag): the size of
+	// what is drawn into.
+	GLint program = 0;
+	glGetIntegerv(GL_CURRENT_PROGRAM, &program);
+	GLint frag_size = program ? glGetUniformLocation((GLuint)program, "frag_size") : -1;
+	if (frag_size >= 0) {
+		GLint viewport[4];
+		glGetIntegerv(GL_VIEWPORT, viewport);
+		glUniform2f(frag_size, (GLfloat)viewport[2], (GLfloat)viewport[3]);
+	}
+
 	pixman_region32_t region;
 	pixman_region32_init_rect(&region, box->x, box->y, box->width, box->height);
 

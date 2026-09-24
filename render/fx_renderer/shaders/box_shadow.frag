@@ -1,12 +1,20 @@
 // Writeup: https://madebyevan.com/shaders/fast-rounded-rectangle-shadows/
 
-#ifdef GL_FRAGMENT_PRECISION_HIGH
+// highp: NVIDIA's GLES doesn't define GL_FRAGMENT_PRECISION_HIGH, and its
+// mediump is real fp16: texture coordinates and positions past 1024 pixels
+// snap to whole or half pixels (see v_frag).
 precision highp float;
-#else
-precision mediump float;
-#endif
 
 varying vec4 v_color;
+#ifndef ATRIUM_V_FRAG
+#define ATRIUM_V_FRAG
+// Where this fragment is, in framebuffer pixels: gl_FragCoord, but highp
+// (GLSL ES 1.00's is mediump, which NVIDIA honours: past 1024 pixels it
+// rounds pixel centres in pairs, so every curve there was drawn at half
+// resolution).
+varying vec2 v_frag;
+#endif
+
 varying vec2 v_texcoord;
 
 uniform vec2 position;
@@ -73,7 +81,7 @@ void main() {
     float shadow_alpha = v_color.a * roundedBoxShadow(
             position + blur_sigma,
             position + size - blur_sigma,
-            gl_FragCoord.xy, blur_sigma * 0.5,
+            v_frag, blur_sigma * 0.5,
             corner_radius);
 
     // Clipping

@@ -1,10 +1,9 @@
 #define LEN %d
 
-#ifdef GL_FRAGMENT_PRECISION_HIGH
+// highp: NVIDIA's GLES doesn't define GL_FRAGMENT_PRECISION_HIGH, and its
+// mediump is real fp16: texture coordinates and positions past 1024 pixels
+// snap to whole or half pixels (see v_frag).
 precision highp float;
-#else
-precision mediump float;
-#endif
 
 varying vec4 v_color;
 varying vec2 v_texcoord;

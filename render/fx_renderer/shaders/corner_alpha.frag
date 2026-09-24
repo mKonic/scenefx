@@ -1,3 +1,12 @@
+#ifndef ATRIUM_V_FRAG
+#define ATRIUM_V_FRAG
+// Where this fragment is, in framebuffer pixels: gl_FragCoord, but highp
+// (GLSL ES 1.00's is mediump, which NVIDIA honours: past 1024 pixels it
+// rounds pixel centres in pairs, so every curve there was drawn at half
+// resolution).
+varying vec2 v_frag;
+#endif
+
 float get_dist(vec2 q, float radius) {
 	return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - radius;
 }
@@ -13,7 +22,7 @@ float corner_alpha(vec2 size, vec2 position, bool is_cutout,
 		return 1.0;
 	}
 
-	vec2 relative_pos = (gl_FragCoord.xy - position);
+	vec2 relative_pos = (v_frag - position);
 
 	if (relative_pos.x < 0.0 || relative_pos.y < 0.0
 			|| relative_pos.x > size.x || relative_pos.y > size.y) {

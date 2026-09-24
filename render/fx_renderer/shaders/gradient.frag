@@ -1,7 +1,16 @@
+#ifndef ATRIUM_V_FRAG
+#define ATRIUM_V_FRAG
+// Where this fragment is, in framebuffer pixels: gl_FragCoord, but highp
+// (GLSL ES 1.00's is mediump, which NVIDIA honours: past 1024 pixels it
+// rounds pixel centres in pairs, so every curve there was drawn at half
+// resolution).
+varying vec2 v_frag;
+#endif
+
 vec4 gradient(vec4 colors[LEN], int count, vec2 size, vec2 grad_box, vec2 origin, float degree, bool linear, bool blend) {
 	float step;
 
-	vec2 normal = (gl_FragCoord.xy - grad_box)/size;
+	vec2 normal = (v_frag - grad_box)/size;
 	vec2 uv = normal - origin;
 
 	float rad = radians(degree);
