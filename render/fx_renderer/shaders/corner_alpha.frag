@@ -24,8 +24,12 @@ float corner_alpha(vec2 size, vec2 position, bool is_cutout,
 
 	vec2 relative_pos = (v_frag - position);
 
-	if (relative_pos.x < 0.0 || relative_pos.y < 0.0
-			|| relative_pos.x > size.x || relative_pos.y > size.y) {
+	// Pixel centres fall on whole numbers here; the edge pixels exactly on
+	// 0.0 and size, give or take interpolation error. Half a pixel's
+	// tolerance keeps them from flickering in and out with position (a
+	// window's outline lost its left edge at some x).
+	if (relative_pos.x < -0.5 || relative_pos.y < -0.5
+			|| relative_pos.x > size.x + 0.5 || relative_pos.y > size.y + 0.5) {
 		if (is_cutout) {
 			return 1.0;
 		}
