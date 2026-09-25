@@ -116,12 +116,17 @@ float bend(float x, float bevel) {
 // distance (negative inside, exact for rounded rectangles), outward normal,
 // opacity and bevel width.
 float shapes_sd(vec2 p, out vec2 normal, out float opacity, out float bevel) {
-	float best = 1e5;
-	float chosen = 1e5;
-	bool inside_any = false;
-	normal = vec2(0.0);
-	opacity = 0.0;
-	bevel = 1.0;
+	// The last (topmost) shape covering the pixel whole takes it: a card
+	// on a panel. One only grazing it with its anti-aliased edge doesn't:
+	// the panel under covers the pixel whole, and the card's edge would
+	// leave it nearly bare (a hairline crack of unblurred backdrop).
+	// Covered by none whole, the one reaching furthest in.
+	float full_sd = 1e5;
+	float near_sd = 1e5;
+	vec2 full_n = vec2(0.0), near_n = vec2(0.0);
+	float full_o = 0.0, near_o = 0.0;
+	float full_b = 1.0, near_b = 1.0;
+	bool full = false;
 	for (int i = 0; i < 16; i++) {
 		if (i >= shape_count) {
 			break;
@@ -136,20 +141,28 @@ float shapes_sd(vec2 p, out vec2 normal, out float opacity, out float bevel) {
 		vec2 rel = p - (b.xy + half_size);
 		vec2 q = abs(rel) - half_size + r;
 		float sd = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
-		bool inside = sd < 0.5;
-		if (inside || (!inside_any && sd < best)) {
-			best = min(best, sd);
-			inside_any = inside_any || inside;
-			chosen = sd;
-			vec2 n = (q.x > 0.0 || q.y > 0.0) ? normalize(max(q, 0.0))
-				: (q.x > q.y ? vec2(1.0, 0.0) : vec2(0.0, 1.0));
-			normal = n * vec2(rel.x < 0.0 ? -1.0 : 1.0, rel.y < 0.0 ? -1.0 : 1.0);
-			opacity = shape_extra[i].y;
-			// A bevel no wider than the corner's curve, so it stays smooth.
-			bevel = max(min(thickness, r), 1.0);
+		vec2 n = (q.x > 0.0 || q.y > 0.0) ? normalize(max(q, 0.0))
+			: (q.x > q.y ? vec2(1.0, 0.0) : vec2(0.0, 1.0));
+		n *= vec2(rel.x < 0.0 ? -1.0 : 1.0, rel.y < 0.0 ? -1.0 : 1.0);
+		// A bevel no wider than the corner's curve, so it stays smooth.
+		float bev = max(min(thickness, r), 1.0);
+		if (sd <= -0.5) {
+			full = true;
+			full_sd = sd;
+			full_n = n;
+			full_o = shape_extra[i].y;
+			full_b = bev;
+		} else if (sd < near_sd) {
+			near_sd = sd;
+			near_n = n;
+			near_o = shape_extra[i].y;
+			near_b = bev;
 		}
 	}
-	return chosen;
+	normal = full ? full_n : near_n;
+	opacity = full ? full_o : near_o;
+	bevel = full ? full_b : near_b;
+	return full ? full_sd : near_sd;
 }
 
 void main() {
