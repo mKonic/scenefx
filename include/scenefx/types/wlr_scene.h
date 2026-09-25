@@ -344,6 +344,10 @@ struct wlr_scene_output {
 		// A white point tint in linear light on an HDR output (night light;
 		// on SDR outputs that's the hardware gamma table's job). 0: none.
 		float tint[3];
+		// On an HDR output, the gamut SDR content is spread over (its
+		// "color intensity"), when not plain sRGB.
+		struct wlr_color_primaries sdr_primaries;
+		bool sdr_primaries_set;
 
 		struct wl_listener output_commit;
 		struct wl_listener output_damage;
@@ -916,6 +920,15 @@ void wlr_scene_output_set_position(struct wlr_scene_output *scene_output,
  */
 void wlr_scene_output_set_sdr_white_nits(struct wlr_scene_output *scene_output,
 	float nits);
+
+/**
+ * The gamut SDR content fills on this output when it is in HDR: its sRGB
+ * values taken as coordinates in these primaries (between sRGB and the
+ * screen's own gamut, as the screen stretches SDR out of HDR). NULL: sRGB,
+ * colorimetric. HDR content and content in other primaries are untouched.
+ */
+void wlr_scene_output_set_sdr_primaries(struct wlr_scene_output *scene_output,
+	const struct wlr_color_primaries *primaries);
 
 /**
  * Multiplies the output's colors in linear light (a warmer white for night

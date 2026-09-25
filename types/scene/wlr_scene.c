@@ -2123,6 +2123,15 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
 		// (Chromium, which draws at the reference) is as bright as the rest,
 		// and HDR scales with it (KWin does the same).
 		float luminance_multiplier = get_luminance_multiplier(&src_lum, &srgb_lum);
+		// SDR content spread over a wider gamut on an HDR output.
+		const struct wlr_color_primaries *sdr_primaries = NULL;
+		if (data->output->sdr_primaries_set && data->output->sdr_white_nits > 0 &&
+				scene_buffer->primaries == 0 &&
+				(scene_buffer->transfer_function == 0 ||
+				scene_buffer->transfer_function == WLR_COLOR_TRANSFER_FUNCTION_SRGB ||
+				scene_buffer->transfer_function == WLR_COLOR_TRANSFER_FUNCTION_GAMMA22)) {
+			sdr_primaries = &data->output->sdr_primaries;
+		}
 
 		struct fx_render_texture_options tex_options = {
 			.base = (struct wlr_render_texture_options){
@@ -2137,7 +2146,7 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
 					!pixman_region32_empty(&opaque) ?
 					WLR_RENDER_BLEND_MODE_PREMULTIPLIED : WLR_RENDER_BLEND_MODE_NONE,
 				.transfer_function = scene_buffer->transfer_function,
-				.primaries = scene_buffer->primaries != 0 ? &primaries : NULL,
+				.primaries = scene_buffer->primaries != 0 ? &primaries : sdr_primaries,
 				.color_encoding = scene_buffer->color_encoding,
 				.color_range = scene_buffer->color_range,
 				.luminance_multiplier = &luminance_multiplier,
@@ -2652,6 +2661,21 @@ void wlr_scene_output_set_sdr_white_nits(struct wlr_scene_output *scene_output,
 	}
 	scene_output->sdr_white_nits = nits;
 	scene_output->sdr_white_changed = true;
+	scene_output_damage_whole(scene_output);
+	wlr_output_schedule_frame(scene_output->output);
+}
+
+void wlr_scene_output_set_sdr_primaries(struct wlr_scene_output *scene_output,
+		const struct wlr_color_primaries *primaries) {
+	const bool set = primaries != NULL;
+	if (set == scene_output->sdr_primaries_set && (!set ||
+			memcmp(&scene_output->sdr_primaries, primaries, sizeof(*primaries)) == 0)) {
+		return;
+	}
+	scene_output->sdr_primaries_set = set;
+	if (set) {
+		scene_output->sdr_primaries = *primaries;
+	}
 	scene_output_damage_whole(scene_output);
 	wlr_output_schedule_frame(scene_output->output);
 }
