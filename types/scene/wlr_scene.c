@@ -2309,6 +2309,20 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
 			}
 			out[4] = s->radius * data->scale;
 			out[5] = s->opacity;
+			if (s->clip_width > 0 && s->clip_height > 0) {
+				struct wlr_box c = {
+					.x = (int)floorf(x + s->clip_x), .y = (int)floorf(y + s->clip_y),
+					.width = (int)ceilf(s->clip_width), .height = (int)ceilf(s->clip_height),
+				};
+				transform_output_box(&c, data);
+				out[6] = c.x;
+				out[7] = c.y;
+				out[8] = c.width;
+				out[9] = c.height;
+			} else {
+				out[6] = out[7] = 0;
+				out[8] = out[9] = -1;
+			}
 		}
 		fx_render_pass_add_blur(fx_pass, &blur_options);
 		break;

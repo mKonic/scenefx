@@ -183,9 +183,12 @@ struct wlr_scene_glass {
 };
 
 /** A piece of Liquid Glass: a rounded rectangle in the blur node's
- * coordinates, and how opaque it is. */
+ * coordinates, and how opaque it is. The clip is where it shows (a card in a
+ * scrolled list): cut there, no rim along the cut; a clip_width of 0 is
+ * all of it. */
 struct wlr_scene_glass_shape {
 	float x, y, width, height, radius, opacity;
+	float clip_x, clip_y, clip_width, clip_height;
 };
 
 #define WLR_SCENE_GLASS_MAX_SHAPES 16

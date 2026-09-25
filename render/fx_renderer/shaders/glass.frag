@@ -55,6 +55,9 @@ uniform float shadow;     // the shadow's darkness under the glass
 // height; radius, opacity. Otherwise the shape is the mask, through `field`.
 uniform vec4 shape_box[16];
 uniform vec2 shape_extra[16];
+// Where each shows (x, y, width, height; width < 0: all of it): cut there,
+// with no rim along the cut, as a card scrolled half out of its list.
+uniform vec4 shape_clip[16];
 uniform int shape_count;
 
 // 1 on glass, 0 off it, antialiased across the edge's pixel.
@@ -122,6 +125,10 @@ float shapes_sd(vec2 p, out vec2 normal, out float opacity, out float bevel) {
 	for (int i = 0; i < 16; i++) {
 		if (i >= shape_count) {
 			break;
+		}
+		vec4 c = shape_clip[i];
+		if (c.z >= 0.0 && (p.x < c.x || p.y < c.y || p.x >= c.x + c.z || p.y >= c.y + c.w)) {
+			continue;
 		}
 		vec4 b = shape_box[i];
 		vec2 half_size = 0.5 * b.zw;

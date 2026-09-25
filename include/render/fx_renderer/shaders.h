@@ -219,6 +219,7 @@ struct glass_shader {
 	GLint field_sigma;
 	GLint shape_box;
 	GLint shape_extra;
+	GLint shape_clip;
 	GLint shape_count;
 };
 

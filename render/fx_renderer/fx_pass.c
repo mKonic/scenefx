@@ -1420,7 +1420,7 @@ static void render_glass(struct fx_gles_render_pass *pass, struct fx_texture *bl
 	glUniform2f(shader->field_texel, 1.0f / width, 1.0f / height);
 	glUniform1f(shader->field_sigma, sigma);
 	glActiveTexture(GL_TEXTURE0);
-	GLfloat boxes[16 * 4], extras[16 * 2];
+	GLfloat boxes[16 * 4], extras[16 * 2], clips[16 * 4];
 	for (int i = 0; i < shape_count; i++) {
 		const float *s = fx_options->glass_shapes[i];
 		boxes[i * 4 + 0] = s[0];
@@ -1429,10 +1429,13 @@ static void render_glass(struct fx_gles_render_pass *pass, struct fx_texture *bl
 		boxes[i * 4 + 3] = s[3];
 		extras[i * 2 + 0] = s[4];
 		extras[i * 2 + 1] = s[5];
+		for (int k = 0; k < 4; k++)
+			clips[i * 4 + k] = s[6 + k];
 	}
 	if (shape_count > 0) {
 		glUniform4fv(shader->shape_box, shape_count, boxes);
 		glUniform2fv(shader->shape_extra, shape_count, extras);
+		glUniform4fv(shader->shape_clip, shape_count, clips);
 	}
 	glUniform1i(shader->shape_count, shape_count);
 

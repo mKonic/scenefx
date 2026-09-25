@@ -378,6 +378,7 @@ bool link_glass_program(struct glass_shader *shader) {
 	shader->field_sigma = glGetUniformLocation(prog, "field_sigma");
 	shader->shape_box = glGetUniformLocation(prog, "shape_box");
 	shader->shape_extra = glGetUniformLocation(prog, "shape_extra");
+	shader->shape_clip = glGetUniformLocation(prog, "shape_clip");
 	shader->shape_count = glGetUniformLocation(prog, "shape_count");
 	shader->thickness = glGetUniformLocation(prog, "thickness");
 	shader->alpha = glGetUniformLocation(prog, "alpha");

@@ -112,7 +112,7 @@ struct fx_render_blur_pass_options {
 	struct wlr_box mask_box;
 	// The glass's shapes, in output buffer pixels: x, y, width, height,
 	// radius, opacity. None: its shape is the mask's.
-	float glass_shapes[16][6];
+	float glass_shapes[16][10];  // box, radius, opacity, clip box (width < 0: none)
 	int glass_shape_count;
 };
 
