@@ -3346,7 +3346,12 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
 	// - There are no color transforms that need to be applied
 	// - Damage highlight debugging is not enabled
 	enum scene_direct_scanout_result scanout_result = SCANOUT_INELIGIBLE;
-	if (options->color_transform == NULL && !render_gamma_lut && list_len == 1
+	// Nor while this output adjusts content on its way out (HDR's SDR white,
+	// SDR color intensity, the night light's tint): a buffer handed straight
+	// to the display would skip all of it, and a fullscreen app would dim
+	// the moment the pointer hid and it became the only thing on screen.
+	const bool adjusts = scene_output->sdr_white_nits > 0 || scene_output->sdr_primaries_set;
+	if (options->color_transform == NULL && !render_gamma_lut && list_len == 1 && !adjusts
 			&& debug_damage != WLR_SCENE_DEBUG_DAMAGE_HIGHLIGHT) {
 		scanout_result = scene_entry_try_direct_scanout(&list_data[0], state, &render_data);
 	}
