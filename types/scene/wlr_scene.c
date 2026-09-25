@@ -2117,17 +2117,12 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
 			scene_buffer->transfer_function, &src_lum);
 		wlr_color_transfer_function_get_default_luminance(
 			WLR_COLOR_TRANSFER_FUNCTION_SRGB, &srgb_lum);
+		// The content's reference white lands on SDR white (1.0), whatever
+		// its transfer function: PQ's 203 nits, scRGB's 1.0. The output
+		// shows 1.0 at the user's SDR brightness, so a color-managed app
+		// (Chromium, which draws at the reference) is as bright as the rest,
+		// and HDR scales with it (KWin does the same).
 		float luminance_multiplier = get_luminance_multiplier(&src_lum, &srgb_lum);
-		const float sdr_white = data->output->sdr_white_nits;
-		if (sdr_white > 0) {
-			// HDR content keeps its absolute luminance, relative to where
-			// SDR white sits (1.0): PQ in nits, linear as scRGB (1.0 = 80).
-			if (scene_buffer->transfer_function == WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ) {
-				luminance_multiplier = src_lum.max / sdr_white;
-			} else if (scene_buffer->transfer_function == WLR_COLOR_TRANSFER_FUNCTION_EXT_LINEAR) {
-				luminance_multiplier = 80.0f / sdr_white;
-			}
-		}
 
 		struct fx_render_texture_options tex_options = {
 			.base = (struct wlr_render_texture_options){
