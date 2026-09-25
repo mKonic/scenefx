@@ -3018,6 +3018,17 @@ static bool apply_blur_region(struct wlr_scene_node *node, struct blur_data *blu
 	if (pixman_region32_intersect(&intersection, &expanded_damage, &node_visible_region)) {
 		should_compensate_blur = true;
 
+		// Liquid Glass reads the backdrop much further off than the blur's
+		// kernel: its lens shows what lies deeper in, and a partial redraw
+		// would bend in last frame's finished pixels, glass and all (stale
+		// patches along the rim). Glass redraws whole; its nodes are small.
+		if (node->type == WLR_SCENE_NODE_BLUR) {
+			struct wlr_scene_blur *blur = wlr_scene_blur_from_node(node);
+			if (blur->glass_shape_count > 0 || blur->refraction > 0) {
+				pixman_region32_copy(&intersection, &node_visible_region);
+			}
+		}
+
 		// Expand the render damage to re-render surrounding blur nodes
 		pixman_region32_union(&render_data->damage, &render_data->damage, &intersection);
 		// Also make sure that the backend also knows about the new
