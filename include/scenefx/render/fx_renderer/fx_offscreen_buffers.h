@@ -27,6 +27,8 @@ struct fx_offscreen_buffers {
 	// HDR (or any output color transform): the frame is drawn here in
 	// half-float, then converted into the output's buffer.
 	struct fx_framebuffer *blend_buffer;
+	// With a screen shader: the frame after it, before the output pass.
+	struct fx_framebuffer *screen_shader_buffer;
 	// Liquid Glass's shape field, blurred across then down (glass_field.frag).
 	struct fx_framebuffer *glass_field_buffer;
 	struct fx_framebuffer *glass_field_buffer_swapped;

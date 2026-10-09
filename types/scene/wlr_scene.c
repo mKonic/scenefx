@@ -499,6 +499,10 @@ static void scene_output_damage_whole(struct wlr_scene_output *scene_output) {
 	pixman_region32_fini(&damage);
 }
 
+void wlr_scene_output_damage_whole(struct wlr_scene_output *scene_output) {
+	scene_output_damage_whole(scene_output);
+}
+
 static void scene_damage_outputs(struct wlr_scene *scene, const pixman_region32_t *damage) {
 	if (pixman_region32_empty(damage)) {
 		return;

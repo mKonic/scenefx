@@ -1012,6 +1012,12 @@ struct wlr_scene_output_state_options {
 };
 
 /**
+ * Draw all of the output again next frame (something over the whole of it
+ * changed: a screen shader).
+ */
+void wlr_scene_output_damage_whole(struct wlr_scene_output *scene_output);
+
+/**
  * Returns true if scene wants to render a new frame. False, if no new frame
  * is needed and an output commit can be skipped for the current frame.
  */

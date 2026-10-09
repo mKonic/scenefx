@@ -165,6 +165,12 @@ bool fx_render_pass_init_offscreen_buffers(struct wlr_render_pass *render_pass,
 			&pass->fx_offscreen_buffers->optimized_blur_buffer, &failed);
 	fx_framebuffer_get_or_create_custom(renderer, output->allocator, width, height, false,
 			&pass->fx_offscreen_buffers->optimized_no_blur_buffer, &failed);
+	// A screen shader draws the finished frame: it's drawn aside first.
+	if (renderer->screen_shader.program) {
+		pass->two_pass = true;
+		fx_framebuffer_get_or_create_half_float(renderer, width, height,
+				&pass->fx_offscreen_buffers->screen_shader_buffer, &failed);
+	}
 	if (pass->two_pass) {
 		fx_framebuffer_get_or_create_half_float(renderer, width, height,
 				&pass->fx_offscreen_buffers->blend_buffer, &failed);
@@ -191,10 +197,46 @@ bool fx_render_pass_init_offscreen_buffers(struct wlr_render_pass *render_pass,
 	return true;
 }
 
+// The finished frame through the screen shader, into the buffer the output
+// pass then reads.
+static struct fx_framebuffer *render_screen_shader(struct fx_gles_render_pass *pass,
+		struct fx_framebuffer *frame) {
+	struct fx_renderer *renderer = pass->buffer->renderer;
+	struct fx_framebuffer *out = pass->fx_offscreen_buffers ?
+		pass->fx_offscreen_buffers->screen_shader_buffer : NULL;
+	if (!renderer->screen_shader.program || out == NULL) {
+		return frame;
+	}
+	const int width = frame->buffer->width, height = frame->buffer->height;
+	fx_framebuffer_bind(out);
+	glViewport(0, 0, width, height);
+	glDisable(GL_BLEND);
+	glDisable(GL_STENCIL_TEST);
+	glDisable(GL_SCISSOR_TEST);
+
+	glUseProgram(renderer->screen_shader.program);
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, frame->tex);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glUniform1i(renderer->screen_shader.tex, 0);
+	glUniform1f(renderer->screen_shader.time, renderer->screen_shader.time_value);
+	glUniform1i(renderer->screen_shader.wl_output, renderer->screen_shader.output_value);
+	glUniform2f(renderer->screen_shader.screen_size, width, height);
+	glUniform2f(renderer->screen_shader.pointer, renderer->screen_shader.pointer_x,
+		renderer->screen_shader.pointer_y);
+	struct wlr_box box = { 0, 0, width, height };
+	set_proj_matrix(renderer->screen_shader.proj, pass->projection_matrix, &box);
+	render(&box, NULL, renderer->screen_shader.pos_attrib);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glEnable(GL_BLEND);
+	return out;
+}
+
 static void render_output_pass(struct fx_gles_render_pass *pass) {
 	struct fx_renderer *renderer = pass->buffer->renderer;
 	struct output_shader *shader = &renderer->shaders.output;
-	struct fx_framebuffer *blend = pass->buffer;
+	struct fx_framebuffer *blend = render_screen_shader(pass, pass->buffer);
 	const int width = pass->output_buffer->buffer->width;
 	const int height = pass->output_buffer->buffer->height;
 

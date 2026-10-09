@@ -8,6 +8,7 @@
 #include <GLES2/gl2.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <wlr/backend.h>
 #include <wlr/render/allocator.h>
@@ -101,6 +102,9 @@ static inline void free_shaders(struct fx_renderer *renderer) {
 	glDeleteProgram(renderer->shaders.glass.program);
 	glDeleteProgram(renderer->shaders.glass_field.program);
 	glDeleteProgram(renderer->shaders.output.program);
+	if (renderer->screen_shader.program) {
+		glDeleteProgram(renderer->screen_shader.program);
+	}
 	pop_fx_debug(renderer);
 }
 
@@ -179,6 +183,126 @@ static struct wlr_render_pass *begin_buffer_pass(struct wlr_renderer *wlr_render
 	TRACY_BOTH_ZONES_END;
 
 	return &pass->base;
+}
+
+static GLuint screen_shader_compile(GLenum type, const char *src, char *error, size_t error_len) {
+	GLuint shader = glCreateShader(type);
+	glShaderSource(shader, 1, &src, NULL);
+	glCompileShader(shader);
+	GLint ok = GL_FALSE;
+	glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
+	if (ok == GL_FALSE) {
+		if (error && error_len) {
+			glGetShaderInfoLog(shader, (GLsizei)error_len, NULL, error);
+		}
+		glDeleteShader(shader);
+		return 0;
+	}
+	return shader;
+}
+
+bool fx_renderer_set_screen_shader(struct wlr_renderer *wlr_renderer, const char *source,
+		char *error, size_t error_len) {
+	struct fx_renderer *renderer = fx_get_renderer(wlr_renderer);
+	if (error && error_len) {
+		error[0] = '\0';
+	}
+	struct wlr_egl_context prev_ctx;
+	if (!wlr_egl_make_current(renderer->egl, &prev_ctx)) {
+		return false;
+	}
+	bool ok = false;
+	GLuint prog = 0;
+	if (source == NULL || source[0] == '\0') {
+		ok = true;
+		goto swap;
+	}
+
+	// A vertex shader in the fragment shader's language: Hyprland's are
+	// 300 es (320 es when they say so); 1.00 ones work too.
+	const char *p = source;
+	while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') {
+		p++;
+	}
+	static const char vert_300[] = "#version 300 es\n"
+		"uniform mat3 proj;\nin vec2 pos;\nout vec2 v_texcoord;\n"
+		"void main() {\n\tgl_Position = vec4(vec3(pos, 1.0) * proj, 1.0);\n\tv_texcoord = pos;\n}\n";
+	static const char vert_320[] = "#version 320 es\n"
+		"uniform mat3 proj;\nin vec2 pos;\nout vec2 v_texcoord;\n"
+		"void main() {\n\tgl_Position = vec4(vec3(pos, 1.0) * proj, 1.0);\n\tv_texcoord = pos;\n}\n";
+	static const char vert_100[] =
+		"uniform mat3 proj;\nattribute vec2 pos;\nvarying vec2 v_texcoord;\n"
+		"void main() {\n\tgl_Position = vec4(vec3(pos, 1.0) * proj, 1.0);\n\tv_texcoord = pos;\n}\n";
+	const char *vert_src = strncmp(p, "#version 320 es", 15) == 0 ? vert_320
+		: strncmp(p, "#version 300 es", 15) == 0 ? vert_300 : vert_100;
+
+	GLuint vert = screen_shader_compile(GL_VERTEX_SHADER, vert_src, error, error_len);
+	GLuint frag = vert ? screen_shader_compile(GL_FRAGMENT_SHADER, source, error, error_len) : 0;
+	if (!vert || !frag) {
+		if (vert) {
+			glDeleteShader(vert);
+		}
+		goto out;
+	}
+	prog = glCreateProgram();
+	glAttachShader(prog, vert);
+	glAttachShader(prog, frag);
+	glLinkProgram(prog);
+	glDetachShader(prog, vert);
+	glDetachShader(prog, frag);
+	glDeleteShader(vert);
+	glDeleteShader(frag);
+	GLint linked = GL_FALSE;
+	glGetProgramiv(prog, GL_LINK_STATUS, &linked);
+	if (linked == GL_FALSE) {
+		if (error && error_len) {
+			glGetProgramInfoLog(prog, (GLsizei)error_len, NULL, error);
+		}
+		glDeleteProgram(prog);
+		goto out;
+	}
+	ok = true;
+
+swap:
+	if (renderer->screen_shader.program) {
+		glDeleteProgram(renderer->screen_shader.program);
+	}
+	renderer->screen_shader.program = prog;
+	if (prog) {
+		renderer->screen_shader.proj = glGetUniformLocation(prog, "proj");
+		renderer->screen_shader.tex = glGetUniformLocation(prog, "tex");
+		renderer->screen_shader.pos_attrib = glGetAttribLocation(prog, "pos");
+		renderer->screen_shader.time = glGetUniformLocation(prog, "time");
+		renderer->screen_shader.wl_output = glGetUniformLocation(prog, "wl_output");
+		GLint size = glGetUniformLocation(prog, "fullSize");
+		if (size == -1) {
+			size = glGetUniformLocation(prog, "screen_size");
+		}
+		if (size == -1) {
+			size = glGetUniformLocation(prog, "screenSize");
+		}
+		renderer->screen_shader.screen_size = size;
+		renderer->screen_shader.pointer = glGetUniformLocation(prog, "pointer_position");
+	}
+
+out:
+	wlr_egl_restore_context(&prev_ctx);
+	return ok;
+}
+
+bool fx_renderer_screen_shader_animates(struct wlr_renderer *wlr_renderer) {
+	struct fx_renderer *renderer = fx_get_renderer(wlr_renderer);
+	return renderer->screen_shader.program &&
+		(renderer->screen_shader.time != -1 || renderer->screen_shader.pointer != -1);
+}
+
+void fx_renderer_set_screen_shader_frame(struct wlr_renderer *wlr_renderer, float time,
+		int output, float pointer_x, float pointer_y) {
+	struct fx_renderer *renderer = fx_get_renderer(wlr_renderer);
+	renderer->screen_shader.time_value = time;
+	renderer->screen_shader.output_value = output;
+	renderer->screen_shader.pointer_x = pointer_x;
+	renderer->screen_shader.pointer_y = pointer_y;
 }
 
 GLuint fx_renderer_get_buffer_fbo(struct wlr_renderer *wlr_renderer,

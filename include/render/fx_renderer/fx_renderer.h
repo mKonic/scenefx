@@ -220,6 +220,17 @@ struct fx_renderer {
 		)
 	} procs;
 
+	// Hyprland's screen_shader: a fragment shader the finished frame of every
+	// output is drawn through (fx_renderer_set_screen_shader).
+	struct {
+		GLuint program;
+		GLint proj, tex, pos_attrib;
+		GLint time, wl_output, screen_size, pointer;
+		float time_value;
+		int output_value;
+		float pointer_x, pointer_y;
+	} screen_shader;
+
 	struct {
 		struct quad_shader quad;
 		struct quad_shader quad_clip;

@@ -17,6 +17,24 @@ struct fx_renderer *fx_get_renderer(struct wlr_renderer *wlr_renderer);
 bool fx_renderer_check_ext(struct wlr_renderer *renderer, const char *ext);
 GLuint fx_renderer_get_buffer_fbo(struct wlr_renderer *renderer, struct wlr_buffer *buffer);
 
+/**
+ * Hyprland's decoration:screen_shader: every output's finished frame drawn
+ * through `source`, a GLSL ES fragment shader (#version 300 es or 320 es, or
+ * 1.00 without a #version) reading `tex` at `v_texcoord`, with the optional
+ * uniforms `time` (seconds), `wl_output`, `screen_size` (also `fullSize`,
+ * `screenSize`) and `pointer_position` (0 to 1 across the output). NULL or
+ * "" turns it off. On a compile or link error it stays as it was, false is
+ * returned and the error is in `error`.
+ */
+bool fx_renderer_set_screen_shader(struct wlr_renderer *renderer, const char *source,
+	char *error, size_t error_len);
+/** Whether the screen shader changes by itself (uses time or the pointer):
+ * then every frame must be drawn whole. */
+bool fx_renderer_screen_shader_animates(struct wlr_renderer *renderer);
+/** The uniforms for the next frame of an output. */
+void fx_renderer_set_screen_shader_frame(struct wlr_renderer *renderer, float time,
+	int output, float pointer_x, float pointer_y);
+
 //
 // fx_texture
 //

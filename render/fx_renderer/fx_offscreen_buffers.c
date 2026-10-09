@@ -31,6 +31,10 @@ static void addon_handle_destroy(struct wlr_addon *addon) {
 		wlr_buffer_drop(fbos->effects_buffer_swapped->buffer);
 		fbos->effects_buffer_swapped = NULL;
 	}
+	if (fbos->screen_shader_buffer != NULL) {
+		wlr_buffer_drop(fbos->screen_shader_buffer->buffer);
+		fbos->screen_shader_buffer = NULL;
+	}
 	if (fbos->blend_buffer != NULL) {
 		wlr_buffer_drop(fbos->blend_buffer->buffer);
 		fbos->blend_buffer = NULL;
