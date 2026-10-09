@@ -73,6 +73,9 @@ struct wlr_scene_node {
 	struct wl_list link; // wlr_scene_tree.children
 
 	bool enabled;
+	// Not drawn (nor hiding what's under it) but otherwise as if it were:
+	// input, outputs, frame callbacks. For something drawn in its place.
+	bool hidden;
 	int x, y; // relative to parent
 
 	struct {
@@ -397,6 +400,13 @@ void wlr_scene_node_destroy(struct wlr_scene_node *node);
  * implicitly disabled as well.
  */
 void wlr_scene_node_set_enabled(struct wlr_scene_node *node, bool enabled);
+
+/**
+ * Stop drawing the node and its children, keeping everything else (input,
+ * outputs entered, frame callbacks): for a compositor drawing it otherwise
+ * in its place.
+ */
+void wlr_scene_node_set_hidden(struct wlr_scene_node *node, bool hidden);
 /**
  * Set the position of the node relative to its parent.
  */

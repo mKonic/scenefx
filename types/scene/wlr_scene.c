@@ -683,6 +683,8 @@ static void restack_xwayland_surface(struct wlr_scene_node *node,
 }
 #endif
 
+static bool scene_node_is_hidden(const struct wlr_scene_node *node);
+
 static bool scene_node_update_iterator(struct wlr_scene_node *node,
 		int lx, int ly, void *_data) {
 	struct scene_update_data *data = _data;
@@ -706,7 +708,7 @@ static bool scene_node_update_iterator(struct wlr_scene_node *node,
 	pixman_region32_intersect_rect(&node->visible, &node->visible,
 		lx, ly, box.width, box.height);
 
-	if (data->calculate_visibility) {
+	if (data->calculate_visibility && !scene_node_is_hidden(node)) {
 		pixman_region32_t opaque;
 		pixman_region32_init(&opaque);
 		scene_node_opaque_region(node, lx, ly, &opaque);
@@ -1815,6 +1817,23 @@ void wlr_scene_node_set_enabled(struct wlr_scene_node *node, bool enabled) {
 	scene_node_update(node, &visible);
 }
 
+void wlr_scene_node_set_hidden(struct wlr_scene_node *node, bool hidden) {
+	if (node->hidden == hidden) {
+		return;
+	}
+	node->hidden = hidden;
+	scene_node_update(node, NULL);
+}
+
+static bool scene_node_is_hidden(const struct wlr_scene_node *node) {
+	for (; node != NULL; node = node->parent ? &node->parent->node : NULL) {
+		if (node->hidden) {
+			return true;
+		}
+	}
+	return false;
+}
+
 void wlr_scene_node_set_position(struct wlr_scene_node *node, int x, int y) {
 	if (node->x == x && node->y == y) {
 		return;
@@ -2835,7 +2854,7 @@ static bool construct_render_list_iterator(struct wlr_scene_node *node,
 		int lx, int ly, void *_data) {
 	struct render_list_constructor_data *data = _data;
 
-	if (scene_node_invisible(node)) {
+	if (scene_node_invisible(node) || scene_node_is_hidden(node)) {
 		return false;
 	}
 
