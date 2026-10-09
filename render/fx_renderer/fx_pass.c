@@ -664,7 +664,7 @@ void fx_render_pass_add_texture(struct fx_gles_render_pass *pass,
 	}
 
 	bool has_alpha = texture->has_alpha || alpha < 1.0 || use_effects
-		|| fx_options->warp != NULL;
+		|| fx_options->warp != NULL || fx_options->motion_samples > 1;
 	TRACY_ZONE_TEXT_f("Has Alpha: %d", has_alpha);
 	setup_blending(!has_alpha ? WLR_RENDER_BLEND_MODE_NONE : options->blend_mode);
 
@@ -750,6 +750,13 @@ void fx_render_pass_add_texture(struct fx_gles_render_pass *pass,
 	}
 
 	set_tex_matrix(shader->tex_proj, options->transform, &src_fbox);
+
+	glUniform1i(shader->motion_samples, fx_options->motion_samples);
+	if (fx_options->motion_samples > 1) {
+		const struct wlr_fbox *m = &fx_options->motion_box;
+		glUniform4f(shader->motion_box, m->x, m->y, m->width, m->height);
+		glUniform2f(shader->motion_back, fx_options->motion_back_x, fx_options->motion_back_y);
+	}
 
 	if (fx_options->warp != NULL) {
 		struct wlr_box whole = {

@@ -117,6 +117,9 @@ struct tex_shader {
 	GLint texcoord_attrib;
 	GLint warped;
 	GLint warp_box;
+	GLint motion_samples;
+	GLint motion_box;
+	GLint motion_back;
 
 	GLint discard_transparent;
 

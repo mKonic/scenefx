@@ -64,6 +64,12 @@ struct fx_render_texture_options {
 	const float *warp;
 	int warp_cols, warp_rows;
 	struct wlr_box warp_box;
+	// Motion blur, with more than one sample: the texture fills motion_box
+	// (render buffer coordinates) and is averaged over that many copies back
+	// along motion_back_x, motion_back_y, all over dst_box.
+	int motion_samples;
+	struct wlr_fbox motion_box;
+	float motion_back_x, motion_back_y;
 };
 
 struct fx_render_rect_options {

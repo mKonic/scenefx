@@ -266,6 +266,9 @@ bool link_tex_program(struct tex_shader *shader, enum fx_tex_shader_source sourc
 	shader->texcoord_attrib = glGetAttribLocation(prog, "texcoord");
 	shader->warped = glGetUniformLocation(prog, "warped");
 	shader->warp_box = glGetUniformLocation(prog, "warp_box");
+	shader->motion_samples = glGetUniformLocation(prog, "motion_samples");
+	shader->motion_box = glGetUniformLocation(prog, "motion_box");
+	shader->motion_back = glGetUniformLocation(prog, "motion_back");
 
 	shader->discard_transparent = glGetUniformLocation(prog, "discard_transparent");
 

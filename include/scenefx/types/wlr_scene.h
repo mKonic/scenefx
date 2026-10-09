@@ -307,6 +307,11 @@ struct wlr_scene_buffer {
 	float *warp_points;
 	int warp_cols, warp_rows;
 	int warp_width, warp_height;
+
+	// Motion blur (see wlr_scene_buffer_set_motion); samples 0 when none.
+	struct wlr_fbox motion_box;
+	double motion_back_x, motion_back_y;
+	int motion_samples;
 };
 
 /** A viewport for an output in the scene-graph */
@@ -872,6 +877,15 @@ void wlr_scene_buffer_set_source_box(struct wlr_scene_buffer *scene_buffer,
  */
 void wlr_scene_buffer_set_warp(struct wlr_scene_buffer *scene_buffer,
 	int cols, int rows, const float *points, int width, int height);
+
+/**
+ * Motion blur: the buffer drawn at `box` (node-local coordinates) and
+ * averaged with `samples` copies of it back along (back_x, back_y), where it
+ * came from. The node's size must cover all of that. Never opaque or
+ * scanned out. samples below 2 turn it off.
+ */
+void wlr_scene_buffer_set_motion(struct wlr_scene_buffer *scene_buffer,
+	const struct wlr_fbox *box, double back_x, double back_y, int samples);
 
 void wlr_scene_buffer_set_dest_size(struct wlr_scene_buffer *scene_buffer,
 	int width, int height);

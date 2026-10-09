@@ -81,12 +81,69 @@ vec4 hdr_decode(vec4 c) {
 	return vec4(rgb * c.a, c.a);
 }
 
-vec4 sample_texture() {
+vec4 sample_at(vec2 texcoord) {
 #if SOURCE == SOURCE_TEXTURE_RGBA || SOURCE == SOURCE_TEXTURE_EXTERNAL
-	return hdr_decode(texture2D(tex, v_texcoord));
+	return texture2D(tex, texcoord);
 #elif SOURCE == SOURCE_TEXTURE_RGBX
-	return hdr_decode(vec4(texture2D(tex, v_texcoord).rgb, 1.0));
+	return vec4(texture2D(tex, texcoord).rgb, 1.0);
 #endif
+}
+
+// Motion blur (fx_render_texture_options.motion): what was at each of
+// `motion_samples` points back along the way it came (`motion_back`, in
+// framebuffer pixels), averaged; the texture fills `motion_box` and is
+// clear around it.
+uniform int motion_samples;
+uniform vec4 motion_box;
+uniform vec2 motion_back;
+uniform mat3 tex_proj;
+#ifndef ATRIUM_V_FRAG
+#define ATRIUM_V_FRAG
+varying vec2 v_frag;
+#endif
+
+// How much of a sample at `p` (pixels into a box `size` big) is inside its
+// rounded corners.
+float motion_round(vec2 p, vec2 size) {
+#if EFFECTS
+	float r = 0.0;
+	vec2 c = vec2(0.0);
+	if (p.x < radius_top_left && p.y < radius_top_left) {
+		r = radius_top_left;
+		c = vec2(r, r);
+	} else if (p.x > size.x - radius_top_right && p.y < radius_top_right) {
+		r = radius_top_right;
+		c = vec2(size.x - r, r);
+	} else if (p.x < radius_bottom_left && p.y > size.y - radius_bottom_left) {
+		r = radius_bottom_left;
+		c = vec2(r, size.y - r);
+	} else if (p.x > size.x - radius_bottom_right && p.y > size.y - radius_bottom_right) {
+		r = radius_bottom_right;
+		c = vec2(size.x - r, size.y - r);
+	}
+	if (r > 0.0) {
+		return clamp(r - length(p - c) + 0.5, 0.0, 1.0);
+	}
+#endif
+	return 1.0;
+}
+
+vec4 sample_texture() {
+	if (motion_samples <= 1) {
+		return hdr_decode(sample_at(v_texcoord));
+	}
+	vec4 sum = vec4(0.0);
+	for (int k = 0; k < 32; k++) {
+		if (k >= motion_samples) {
+			break;
+		}
+		vec2 at = v_frag + motion_back * (float(k) / float(motion_samples - 1));
+		vec2 unit = (at - motion_box.xy) / motion_box.zw;
+		if (unit.x >= 0.0 && unit.y >= 0.0 && unit.x <= 1.0 && unit.y <= 1.0) {
+			sum += sample_at((vec3(unit, 1.0) * tex_proj).xy) * motion_round(unit * motion_box.zw, motion_box.zw);
+		}
+	}
+	return hdr_decode(sum / float(motion_samples));
 }
 
 #if EFFECTS

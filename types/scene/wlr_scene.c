@@ -360,7 +360,8 @@ static void scene_node_opaque_region(struct wlr_scene_node *node, int x, int y,
 			return;
 		}
 
-		if (scene_buffer->opacity != 1 || scene_buffer->warp_points != NULL) {
+		if (scene_buffer->opacity != 1 || scene_buffer->warp_points != NULL ||
+				scene_buffer->motion_samples > 1) {
 			return;
 		}
 
@@ -1631,6 +1632,23 @@ void wlr_scene_buffer_set_warp(struct wlr_scene_buffer *scene_buffer,
 	scene_node_update(&scene_buffer->node, NULL);
 }
 
+void wlr_scene_buffer_set_motion(struct wlr_scene_buffer *scene_buffer,
+		const struct wlr_fbox *box, double back_x, double back_y, int samples) {
+	if (samples < 2 || box == NULL) {
+		if (scene_buffer->motion_samples < 2) {
+			return;
+		}
+		scene_buffer->motion_samples = 0;
+		scene_node_update(&scene_buffer->node, NULL);
+		return;
+	}
+	scene_buffer->motion_box = *box;
+	scene_buffer->motion_back_x = back_x;
+	scene_buffer->motion_back_y = back_y;
+	scene_buffer->motion_samples = samples;
+	scene_node_update(&scene_buffer->node, NULL);
+}
+
 void wlr_scene_buffer_set_dest_size(struct wlr_scene_buffer *scene_buffer,
 		int width, int height) {
 	if (scene_buffer->dst_width == width && scene_buffer->dst_height == height) {
@@ -2253,6 +2271,30 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
 			.corners = fx_corner_radii_scale(buffer_corners, data->scale),
 			.clipped_region = {0},
 		};
+
+		if (scene_buffer->motion_samples > 1) {
+			// The unblurred box and the way back, in the render buffer.
+			enum wl_output_transform inv = wlr_output_transform_invert(data->transform);
+			struct wlr_fbox m = {
+				.x = (entry->x - data->logical.x + scene_buffer->motion_box.x) * data->scale,
+				.y = (entry->y - data->logical.y + scene_buffer->motion_box.y) * data->scale,
+				.width = scene_buffer->motion_box.width * data->scale,
+				.height = scene_buffer->motion_box.height * data->scale,
+			};
+			struct wlr_fbox back = {
+				.x = m.x + scene_buffer->motion_back_x * data->scale,
+				.y = m.y + scene_buffer->motion_back_y * data->scale,
+				.width = m.width,
+				.height = m.height,
+			};
+			wlr_fbox_transform(&m, &m, inv, data->trans_width, data->trans_height);
+			wlr_fbox_transform(&back, &back, inv, data->trans_width, data->trans_height);
+			tex_options.motion_samples = scene_buffer->motion_samples;
+			tex_options.motion_box = m;
+			tex_options.motion_back_x = back.x - m.x;
+			tex_options.motion_back_y = back.y - m.y;
+			tex_options.base.blend_mode = WLR_RENDER_BLEND_MODE_PREMULTIPLIED;
+		}
 
 		float *warp = NULL;
 		if (scene_buffer->warp_points != NULL) {
@@ -3007,7 +3049,7 @@ static enum scene_direct_scanout_result scene_entry_try_direct_scanout(
 	}
 
 	struct wlr_scene_buffer *buffer = wlr_scene_buffer_from_node(node);
-	if (buffer->buffer == NULL || buffer->warp_points != NULL) {
+	if (buffer->buffer == NULL || buffer->warp_points != NULL || buffer->motion_samples > 1) {
 		return SCANOUT_INELIGIBLE;
 	}
 
