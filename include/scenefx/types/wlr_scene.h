@@ -944,6 +944,13 @@ void wlr_scene_buffer_set_client_opacity(struct wlr_scene_buffer *scene_buffer,
 	float opacity);
 
 /**
+ * The box (in layout coordinates) the node's rects and buffers cover, all of
+ * its tree's; empty when there are none. Exported so that a compositor whose
+ * scene is scenefx's measures it with its own (the capture source does).
+ */
+void wlr_scene_node_get_extents(struct wlr_scene_node *node, struct wlr_box *box);
+
+/**
 * Sets the filter mode to use when scaling the buffer
 */
 void wlr_scene_buffer_set_filter_mode(struct wlr_scene_buffer *scene_buffer,

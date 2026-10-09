@@ -1,3 +1,4 @@
+#include <limits.h>
 #include <assert.h>
 #include <math.h>
 #include <pixman.h>
@@ -1711,6 +1712,52 @@ void wlr_scene_buffer_set_opacity(struct wlr_scene_buffer *scene_buffer,
 	assert(opacity >= 0 && opacity <= 1);
 	scene_buffer->opacity = opacity;
 	scene_node_update(&scene_buffer->node, NULL);
+}
+
+static void scene_node_extents_at(struct wlr_scene_node *node, int lx, int ly,
+		int *x_min, int *y_min, int *x_max, int *y_max) {
+	switch (node->type) {
+	case WLR_SCENE_NODE_TREE:;
+		struct wlr_scene_tree *scene_tree = wlr_scene_tree_from_node(node);
+		struct wlr_scene_node *child;
+		wl_list_for_each(child, &scene_tree->children, link) {
+			scene_node_extents_at(child, lx + child->x, ly + child->y, x_min, y_min, x_max, y_max);
+		}
+		break;
+	case WLR_SCENE_NODE_RECT:
+	case WLR_SCENE_NODE_BUFFER:;
+		struct wlr_box node_box = { .x = lx, .y = ly };
+		scene_node_get_size(node, &node_box.width, &node_box.height);
+		if (node_box.x < *x_min) {
+			*x_min = node_box.x;
+		}
+		if (node_box.y < *y_min) {
+			*y_min = node_box.y;
+		}
+		if (node_box.x + node_box.width > *x_max) {
+			*x_max = node_box.x + node_box.width;
+		}
+		if (node_box.y + node_box.height > *y_max) {
+			*y_max = node_box.y + node_box.height;
+		}
+		break;
+	default:
+		break;
+	}
+}
+
+void wlr_scene_node_get_extents(struct wlr_scene_node *node, struct wlr_box *box) {
+	int lx = 0, ly = 0;
+	wlr_scene_node_coords(node, &lx, &ly);
+	*box = (struct wlr_box){ .x = INT_MAX, .y = INT_MAX };
+	int x_max = INT_MIN, y_max = INT_MIN;
+	scene_node_extents_at(node, lx, ly, &box->x, &box->y, &x_max, &y_max);
+	if (x_max < box->x || y_max < box->y) {
+		*box = (struct wlr_box){0};
+		return;
+	}
+	box->width = x_max - box->x;
+	box->height = y_max - box->y;
 }
 
 void wlr_scene_buffer_set_client_opacity(struct wlr_scene_buffer *scene_buffer,
