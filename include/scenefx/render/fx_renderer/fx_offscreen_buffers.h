@@ -29,6 +29,10 @@ struct fx_offscreen_buffers {
 	struct fx_framebuffer *blend_buffer;
 	// With a screen shader: the frame after it, before the output pass.
 	struct fx_framebuffer *screen_shader_buffer;
+	// The display's correction table, as a texture (see output.frag), and
+	// which version of it.
+	struct wlr_texture *lut_texture;
+	uint64_t lut_gen;
 	// Liquid Glass's shape field, blurred across then down (glass_field.frag).
 	struct fx_framebuffer *glass_field_buffer;
 	struct fx_framebuffer *glass_field_buffer_swapped;

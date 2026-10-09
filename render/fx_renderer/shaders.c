@@ -459,5 +459,7 @@ bool link_output_program(struct output_shader *shader) {
 	shader->pos_attrib = glGetAttribLocation(prog, "pos");
 	shader->matrix = glGetUniformLocation(prog, "matrix");
 	shader->out_tf = glGetUniformLocation(prog, "out_tf");
+	shader->lut = glGetUniformLocation(prog, "lut");
+	shader->lut_size = glGetUniformLocation(prog, "lut_size");
 	return true;
 }

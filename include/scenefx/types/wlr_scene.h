@@ -360,6 +360,12 @@ struct wlr_scene_output {
 		// A white point tint in linear light on an HDR output (night light;
 		// on SDR outputs that's the hardware gamma table's job). 0: none.
 		float tint[3];
+		// The display's correction (wlr_scene_output_set_correction).
+		bool has_calibration;
+		float calibration[9];
+		float *lut;
+		int lut_size;
+		uint64_t lut_gen;
 		// On an HDR output, the gamut SDR content is spread over (its
 		// "color intensity"), when not plain sRGB.
 		struct wlr_color_primaries sdr_primaries;
@@ -985,6 +991,15 @@ void wlr_scene_output_set_sdr_white_nits(struct wlr_scene_output *scene_output,
  */
 void wlr_scene_output_set_sdr_primaries(struct wlr_scene_output *scene_output,
 	const struct wlr_color_primaries *primaries);
+
+/**
+ * The display's correction, from its colour profile: a row-major matrix
+ * applied in linear light after everything else (NULL: none), and a
+ * lut_size^3 RGB table applied to the encoded signal, red varying fastest,
+ * then green, then blue (NULL: none). Both are copied.
+ */
+void wlr_scene_output_set_correction(struct wlr_scene_output *scene_output,
+	const float *calibration, const float *lut, int lut_size);
 
 /**
  * Multiplies the output's colors in linear light (a warmer white for night

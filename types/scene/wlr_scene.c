@@ -2640,6 +2640,7 @@ static void scene_output_handle_commit(struct wl_listener *listener, void *data)
 				&scene_output->pending_commit_damage, &state->damage);
 		} else {
 			pixman_region32_fini(&scene_output->pending_commit_damage);
+	free(scene_output->lut);
 			pixman_region32_init(&scene_output->pending_commit_damage);
 		}
 	}
@@ -2812,6 +2813,28 @@ struct wlr_scene_output *wlr_scene_get_scene_output(struct wlr_scene *scene,
 	struct wlr_scene_output *scene_output =
 		wl_container_of(addon, scene_output, addon);
 	return scene_output;
+}
+
+void wlr_scene_output_set_correction(struct wlr_scene_output *scene_output,
+		const float *calibration, const float *lut, int lut_size) {
+	scene_output->has_calibration = calibration != NULL;
+	if (calibration) {
+		memcpy(scene_output->calibration, calibration, sizeof(scene_output->calibration));
+	}
+	free(scene_output->lut);
+	scene_output->lut = NULL;
+	scene_output->lut_size = 0;
+	if (lut && lut_size > 1) {
+		const size_t len = (size_t)lut_size * lut_size * lut_size * 3;
+		scene_output->lut = malloc(len * sizeof(float));
+		if (scene_output->lut) {
+			memcpy(scene_output->lut, lut, len * sizeof(float));
+			scene_output->lut_size = lut_size;
+		}
+	}
+	scene_output->lut_gen++;
+	scene_output_damage_whole(scene_output);
+	wlr_output_schedule_frame(scene_output->output);
 }
 
 void wlr_scene_output_set_tint(struct wlr_scene_output *scene_output,
@@ -3635,6 +3658,9 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
 		&render_data.damage);
 
 	struct fx_gles_render_pass *fx_pass = fx_get_render_pass(render_pass);
+	fx_render_pass_set_correction(render_pass,
+		scene_output->has_calibration ? scene_output->calibration : NULL,
+		scene_output->lut, scene_output->lut_size, scene_output->lut_gen);
 	bool should_compensate_blur = false;
 	if (fx_render_pass_init_offscreen_buffers(render_pass, output)
 			&& pixman_region32_not_empty(&render_data.damage)) {

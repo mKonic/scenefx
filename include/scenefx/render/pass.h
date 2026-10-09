@@ -35,6 +35,14 @@ struct fx_gles_render_pass {
 	struct fx_framebuffer *output_buffer;
 	float output_matrix[9];
 	int output_tf; // as output.frag's out_tf
+	// The display's correction (its colour profile): a matrix in linear
+	// light after output_matrix, and a 3D table on the encoded signal
+	// (wlr_scene_output_set_correction). Either forces the second pass.
+	bool has_calibration;
+	float calibration[9];
+	const float *lut;
+	int lut_size;
+	uint64_t lut_gen;
 };
 
 struct fx_gradient {
@@ -136,6 +144,15 @@ struct fx_render_blur_pass_options {
 };
 
 struct fx_gles_render_pass *fx_get_render_pass(struct wlr_render_pass *render_pass);
+
+/**
+ * The display's correction for this pass (call before
+ * fx_render_pass_init_offscreen_buffers): a row-major matrix in linear light
+ * (NULL: none) and a lut_size^3 RGB table on the encoded signal, red fastest
+ * (NULL: none); lut_gen changes whenever the table does.
+ */
+void fx_render_pass_set_correction(struct wlr_render_pass *render_pass,
+	const float *calibration, const float *lut, int lut_size, uint64_t lut_gen);
 
 /**
  * Initializes the render pass offscreen buffers required for advanced effects

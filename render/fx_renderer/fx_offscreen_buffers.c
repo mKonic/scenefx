@@ -1,3 +1,4 @@
+#include <wlr/render/wlr_texture.h>
 #include <stdlib.h>
 #include <wlr/types/wlr_output.h>
 #include <wlr/util/addon.h>
@@ -30,6 +31,10 @@ static void addon_handle_destroy(struct wlr_addon *addon) {
 	if (fbos->effects_buffer_swapped != NULL) {
 		wlr_buffer_drop(fbos->effects_buffer_swapped->buffer);
 		fbos->effects_buffer_swapped = NULL;
+	}
+	if (fbos->lut_texture != NULL) {
+		wlr_texture_destroy(fbos->lut_texture);
+		fbos->lut_texture = NULL;
 	}
 	if (fbos->screen_shader_buffer != NULL) {
 		wlr_buffer_drop(fbos->screen_shader_buffer->buffer);

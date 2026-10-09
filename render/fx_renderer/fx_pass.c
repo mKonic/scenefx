@@ -2,6 +2,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <drm_fourcc.h>
+#include <string.h>
+#include <wlr/render/wlr_texture.h>
 #include <pixman.h>
 #include <time.h>
 #include <unistd.h>
@@ -130,6 +133,84 @@ void fx_render_pass_set_color_transform(struct fx_gles_render_pass *pass,
 	pass->two_pass = !plain;
 }
 
+void fx_render_pass_set_correction(struct wlr_render_pass *render_pass,
+		const float *calibration, const float *lut, int lut_size, uint64_t lut_gen) {
+	struct fx_gles_render_pass *pass = fx_get_render_pass(render_pass);
+	pass->has_calibration = calibration != NULL;
+	if (calibration) {
+		memcpy(pass->calibration, calibration, sizeof(pass->calibration));
+	}
+	pass->lut = lut_size > 1 ? lut : NULL;
+	pass->lut_size = lut_size > 1 ? lut_size : 0;
+	pass->lut_gen = lut_gen;
+	if (pass->has_calibration || pass->lut) {
+		pass->two_pass = true;
+	}
+}
+
+static uint16_t to_half(float f) {
+	union { float f; uint32_t u; } v = { .f = f };
+	const uint32_t sign = (v.u >> 16) & 0x8000;
+	int32_t exp = (int32_t)((v.u >> 23) & 0xff) - 127 + 15;
+	uint32_t mant = v.u & 0x7fffff;
+	if (exp <= 0) {
+		return (uint16_t)sign;
+	} else if (exp >= 31) {
+		return (uint16_t)(sign | 0x7c00);
+	}
+	// Round to nearest.
+	mant += 0x1000;
+	if (mant & 0x800000) {
+		mant = 0;
+		if (++exp >= 31) {
+			return (uint16_t)(sign | 0x7c00);
+		}
+	}
+	return (uint16_t)(sign | (uint32_t)exp << 10 | mant >> 13);
+}
+
+// The correction table as an atlas texture, made again when it changed.
+static struct wlr_texture *correction_texture(struct fx_gles_render_pass *pass) {
+	struct fx_offscreen_buffers *fbos = pass->fx_offscreen_buffers;
+	if (pass->lut == NULL || fbos == NULL) {
+		return NULL;
+	}
+	if (fbos->lut_texture && fbos->lut_gen == pass->lut_gen) {
+		return fbos->lut_texture;
+	}
+	if (fbos->lut_texture) {
+		wlr_texture_destroy(fbos->lut_texture);
+		fbos->lut_texture = NULL;
+	}
+	const int n = pass->lut_size;
+	const int width = n * n;
+	uint16_t *pixels = malloc((size_t)width * n * 4 * sizeof(uint16_t));
+	if (pixels == NULL) {
+		return NULL;
+	}
+	for (int b = 0; b < n; b++) {
+		for (int g = 0; g < n; g++) {
+			for (int r = 0; r < n; r++) {
+				const float *in = &pass->lut[(((size_t)b * n + g) * n + r) * 3];
+				uint16_t *out = &pixels[((size_t)g * width + (size_t)b * n + r) * 4];
+				out[0] = to_half(in[0]);
+				out[1] = to_half(in[1]);
+				out[2] = to_half(in[2]);
+				out[3] = to_half(1.0f);
+			}
+		}
+	}
+	struct fx_renderer *renderer = pass->buffer->renderer;
+	fbos->lut_texture = wlr_texture_from_pixels(&renderer->wlr_renderer,
+		DRM_FORMAT_ABGR16161616F, (uint32_t)width * 8, (uint32_t)width, (uint32_t)n, pixels);
+	free(pixels);
+	fbos->lut_gen = pass->lut_gen;
+	if (fbos->lut_texture == NULL) {
+		wlr_log(WLR_ERROR, "fx_renderer: couldn't make the display's correction table");
+	}
+	return fbos->lut_texture;
+}
+
 bool fx_render_pass_init_offscreen_buffers(struct wlr_render_pass *render_pass,
 		struct wlr_output *output) {
 	struct fx_gles_render_pass *pass = fx_get_render_pass(render_pass);
@@ -239,6 +320,7 @@ static void render_output_pass(struct fx_gles_render_pass *pass) {
 	struct fx_framebuffer *blend = render_screen_shader(pass, pass->buffer);
 	const int width = pass->output_buffer->buffer->width;
 	const int height = pass->output_buffer->buffer->height;
+	struct wlr_texture *lut = correction_texture(pass);
 
 	fx_framebuffer_bind(pass->output_buffer);
 	glViewport(0, 0, width, height);
@@ -251,10 +333,27 @@ static void render_output_pass(struct fx_gles_render_pass *pass) {
 	glBindTexture(GL_TEXTURE_2D, blend->tex);
 	glUniform1i(shader->tex, 0);
 	// wlroots matrices are row-major; GLSL reads column-major.
+	// The display's calibration comes after the output's own matrix.
+	float matrix[9];
+	memcpy(matrix, pass->output_matrix, sizeof(matrix));
+	if (pass->has_calibration) {
+		wlr_matrix_multiply(matrix, pass->calibration, pass->output_matrix);
+	}
 	float transposed[9];
-	wlr_matrix_transpose(transposed, pass->output_matrix);
+	wlr_matrix_transpose(transposed, matrix);
 	glUniformMatrix3fv(shader->matrix, 1, GL_FALSE, transposed);
 	glUniform1i(shader->out_tf, pass->output_tf);
+	glUniform1i(shader->lut_size, lut ? pass->lut_size : 0);
+	if (lut) {
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, fx_get_texture(lut)->tex);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glUniform1i(shader->lut, 1);
+		glActiveTexture(GL_TEXTURE0);
+	}
 
 	struct wlr_box box = { 0, 0, width, height };
 	struct wlr_fbox src = { 0, 0, 1, 1 };

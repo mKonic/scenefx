@@ -154,6 +154,8 @@ struct output_shader {
 	GLint pos_attrib;
 	GLint matrix;
 	GLint out_tf;
+	GLint lut;
+	GLint lut_size;
 };
 
 bool link_output_program(struct output_shader *shader);
