@@ -123,6 +123,7 @@ struct tex_shader {
 	GLint material;
 	GLint material_box;
 	GLint material_texel;
+	GLint tint;
 
 	GLint discard_transparent;
 	GLint discard_below;

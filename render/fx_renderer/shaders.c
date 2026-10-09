@@ -279,6 +279,7 @@ bool link_tex_program(struct tex_shader *shader, enum fx_tex_shader_source sourc
 	shader->material = glGetUniformLocation(prog, "material");
 	shader->material_box = glGetUniformLocation(prog, "material_box");
 	shader->material_texel = glGetUniformLocation(prog, "material_texel");
+	shader->tint = glGetUniformLocation(prog, "tint");
 
 	shader->discard_transparent = glGetUniformLocation(prog, "discard_transparent");
 	shader->discard_below = glGetUniformLocation(prog, "discard_below");

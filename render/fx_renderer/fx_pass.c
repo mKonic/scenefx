@@ -839,6 +839,11 @@ void fx_render_pass_add_texture(struct fx_gles_render_pass *pass,
 	glUniform1i(shader->tex, 0);
 	glUniform1f(shader->alpha, alpha);
 
+	if (fx_options->tint != NULL) {
+		glUniform2f(shader->tint, fx_options->tint[0], fx_options->tint[1]);
+	} else {
+		glUniform2f(shader->tint, 1.0f, 1.0f);
+	}
 	glUniform1f(shader->discard_transparent, fx_options->discard_transparent);
 	glUniform1f(shader->discard_below, fx_options->discard_below);
 

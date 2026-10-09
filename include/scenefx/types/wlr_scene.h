@@ -314,6 +314,9 @@ struct wlr_scene_buffer {
 	struct wlr_fbox motion_box;
 	double motion_back_x, motion_back_y;
 	int motion_samples;
+
+	// Its colours (see wlr_scene_buffer_set_tint); 1, 1 as they are.
+	float tint_saturation, tint_brightness;
 };
 
 /** A viewport for an output in the scene-graph */
@@ -906,6 +909,14 @@ void wlr_scene_buffer_set_warp(struct wlr_scene_buffer *scene_buffer,
  */
 void wlr_scene_buffer_set_motion(struct wlr_scene_buffer *scene_buffer,
 	const struct wlr_fbox *box, double back_x, double back_y, int samples);
+
+/**
+ * Draw the buffer's colours with this saturation (0 grey, 1 as they are) and
+ * brightness (a multiplier), as KWin's window effects do. Never scanned out
+ * unless both are 1.
+ */
+void wlr_scene_buffer_set_tint(struct wlr_scene_buffer *scene_buffer,
+	float saturation, float brightness);
 
 void wlr_scene_buffer_set_dest_size(struct wlr_scene_buffer *scene_buffer,
 	int width, int height);

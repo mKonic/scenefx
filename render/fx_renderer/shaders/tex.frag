@@ -259,6 +259,15 @@ float corner_alpha(vec2 size, vec2 position, bool is_cutout,
 		float radius_tl, float radius_tr, float radius_bl, float radius_br);
 #endif
 
+// Saturation and brightness (wlr_scene_buffer_set_tint), on premultiplied
+// colour, which they scale alike.
+uniform vec2 tint;
+
+vec4 tinted(vec4 c) {
+	float luma = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+	return vec4(mix(vec3(luma), c.rgb, tint.x) * tint.y, c.a);
+}
+
 void main() {
 #if EFFECTS
 	float quad_corner_alpha = corner_alpha(
@@ -282,9 +291,9 @@ void main() {
 		clip_radius_bottom_right
 	);
 
-	gl_FragColor = sample_texture() * alpha * quad_corner_alpha * clip_corner_alpha;
+	gl_FragColor = tinted(sample_texture()) * alpha * quad_corner_alpha * clip_corner_alpha;
 #else
-	gl_FragColor = sample_texture() * alpha;
+	gl_FragColor = tinted(sample_texture()) * alpha;
 #endif
 
 	if (discard_transparent && gl_FragColor.a <= discard_below) {

@@ -1410,6 +1410,8 @@ struct wlr_scene_buffer *wlr_scene_buffer_create(struct wlr_scene_tree *parent,
 	wl_list_init(&scene_buffer->buffer_release.link);
 	wl_list_init(&scene_buffer->renderer_destroy.link);
 	scene_buffer->opacity = 1;
+	scene_buffer->tint_saturation = 1;
+	scene_buffer->tint_brightness = 1;
 
 	scene_buffer->corners = corner_radii_none();
 
@@ -1706,6 +1708,17 @@ void wlr_scene_buffer_set_opacity(struct wlr_scene_buffer *scene_buffer,
 
 	assert(opacity >= 0 && opacity <= 1);
 	scene_buffer->opacity = opacity;
+	scene_node_update(&scene_buffer->node, NULL);
+}
+
+void wlr_scene_buffer_set_tint(struct wlr_scene_buffer *scene_buffer,
+		float saturation, float brightness) {
+	if (scene_buffer->tint_saturation == saturation &&
+			scene_buffer->tint_brightness == brightness) {
+		return;
+	}
+	scene_buffer->tint_saturation = saturation;
+	scene_buffer->tint_brightness = brightness;
 	scene_node_update(&scene_buffer->node, NULL);
 }
 
@@ -2215,12 +2228,22 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
 			// TODO: Render blur/rounded corners/etc here:
 
 			// Render the buffer as a rect, this is likely to be more efficient
+			float rgb[3];
+			for (int i = 0; i < 3; i++) {
+				rgb[i] = (float)scene_buffer->single_pixel_buffer_color[i] / (float)UINT32_MAX;
+			}
+			// The tint, as the texture shader's.
+			const float luma = rgb[0] * 0.2126f + rgb[1] * 0.7152f + rgb[2] * 0.0722f;
+			for (int i = 0; i < 3; i++) {
+				rgb[i] = (luma + (rgb[i] - luma) * scene_buffer->tint_saturation) *
+					scene_buffer->tint_brightness;
+			}
 			wlr_render_pass_add_rect(data->render_pass, &(struct wlr_render_rect_options){
 				.box = dst_box,
 				.color = {
-					.r = (float)scene_buffer->single_pixel_buffer_color[0] / (float)UINT32_MAX,
-					.g = (float)scene_buffer->single_pixel_buffer_color[1] / (float)UINT32_MAX,
-					.b = (float)scene_buffer->single_pixel_buffer_color[2] / (float)UINT32_MAX,
+					.r = rgb[0],
+					.g = rgb[1],
+					.b = rgb[2],
 					.a = (float)scene_buffer->single_pixel_buffer_color[3] /
 						(float)UINT32_MAX * scene_buffer->opacity,
 				},
@@ -2291,6 +2314,10 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
 			.corners = fx_corner_radii_scale(buffer_corners, data->scale),
 			.clipped_region = {0},
 		};
+		const float tint[2] = {scene_buffer->tint_saturation, scene_buffer->tint_brightness};
+		if (tint[0] != 1 || tint[1] != 1) {
+			tex_options.tint = tint;
+		}
 
 		if (scene_buffer->motion_samples > 1) {
 			// The unblurred box and the way back, in the render buffer.
@@ -3093,7 +3120,8 @@ static enum scene_direct_scanout_result scene_entry_try_direct_scanout(
 	}
 
 	struct wlr_scene_buffer *buffer = wlr_scene_buffer_from_node(node);
-	if (buffer->buffer == NULL || buffer->warp_points != NULL || buffer->motion_samples > 1) {
+	if (buffer->buffer == NULL || buffer->warp_points != NULL || buffer->motion_samples > 1 ||
+			buffer->tint_saturation != 1 || buffer->tint_brightness != 1) {
 		return SCANOUT_INELIGIBLE;
 	}
 
