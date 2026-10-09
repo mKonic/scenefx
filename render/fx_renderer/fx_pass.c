@@ -699,6 +699,7 @@ void fx_render_pass_add_texture(struct fx_gles_render_pass *pass,
 	glUniform1f(shader->alpha, alpha);
 
 	glUniform1f(shader->discard_transparent, fx_options->discard_transparent);
+	glUniform1f(shader->discard_below, fx_options->discard_below);
 
 	// Content in another transfer function or gamut (HDR) is converted to
 	// what the frame is drawn in; plain SDR is drawn as is.

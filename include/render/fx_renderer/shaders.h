@@ -125,6 +125,7 @@ struct tex_shader {
 	GLint material_texel;
 
 	GLint discard_transparent;
+	GLint discard_below;
 
 	GLint hdr_tf;
 	GLint hdr_prim;

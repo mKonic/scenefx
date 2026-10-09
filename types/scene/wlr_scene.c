@@ -1152,6 +1152,14 @@ void wlr_scene_blur_set_should_only_blur_bottom_layer(struct wlr_scene_blur *blu
 	scene_node_update(&blur->node, NULL);
 }
 
+void wlr_scene_blur_set_mask_alpha_threshold(struct wlr_scene_blur *blur, float alpha) {
+	if (blur->mask_alpha_threshold == alpha) {
+		return;
+	}
+	blur->mask_alpha_threshold = alpha;
+	scene_node_update(&blur->node, NULL);
+}
+
 void wlr_scene_blur_set_transparency_mask_source(struct wlr_scene_blur *blur,
        struct wlr_scene_buffer *source) {
 	if (source == NULL && blur->transparency_mask_source.link == NULL) {
@@ -2441,6 +2449,7 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
 				.clip_box = &dst_box,
 				.corners = fx_corner_radii_scale(blur_corners, data->scale),
 				.discard_transparent = false,
+				.discard_below = blur->mask_alpha_threshold,
 			},
 			.use_optimized_blur = blur->should_only_blur_bottom_layer,
 			.blur_data = &scene->blur_data,

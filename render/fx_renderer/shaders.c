@@ -281,6 +281,7 @@ bool link_tex_program(struct tex_shader *shader, enum fx_tex_shader_source sourc
 	shader->material_texel = glGetUniformLocation(prog, "material_texel");
 
 	shader->discard_transparent = glGetUniformLocation(prog, "discard_transparent");
+	shader->discard_below = glGetUniformLocation(prog, "discard_below");
 
 	shader->hdr_tf = glGetUniformLocation(prog, "hdr_tf");
 	shader->hdr_prim = glGetUniformLocation(prog, "hdr_prim");

@@ -56,6 +56,8 @@ struct fx_render_texture_options {
 	const struct wlr_box *clip_box; // Used to clip csd. Ignored if NULL
 	struct fx_corner_fradii corners;
 	bool discard_transparent;
+	// With discard_transparent: alpha at or below this counts as clear.
+	float discard_below;
 	struct clipped_fregion clipped_region;
 	// Drawn bent over a grid of (warp_cols + 1) * (warp_rows + 1) points,
 	// each x, y in the render buffer then u, v across dst_box (0 to 1),

@@ -213,6 +213,8 @@ struct wlr_scene_blur {
 	bool should_only_blur_bottom_layer;
 
 	struct linked_node transparency_mask_source;
+	// The mask's pixels at or below this alpha are left unblurred.
+	float mask_alpha_threshold;
 };
 
 /** A scene-graph node telling SceneFX to render the optimized blur */
@@ -708,6 +710,12 @@ void wlr_scene_blur_set_should_only_blur_bottom_layer(struct wlr_scene_blur *blu
  * Set the transparency mask source for the blur, only rendering blur where the
  * Mask source is actually rendering (e.g. skip transparent spaces)
  */
+/**
+ * Leave the mask's pixels at or below `alpha` unblurred (a menu's soft
+ * shadow), as Hyprland's ignorealpha; 0 (the default) only the clear ones.
+ */
+void wlr_scene_blur_set_mask_alpha_threshold(struct wlr_scene_blur *blur, float alpha);
+
 void wlr_scene_blur_set_transparency_mask_source(struct wlr_scene_blur *blur,
 	   struct wlr_scene_buffer *source);
 

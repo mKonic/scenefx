@@ -45,6 +45,9 @@ uniform float clip_radius_bottom_right;
 #endif
 
 uniform bool discard_transparent;
+// With discard_transparent: what counts as transparent (Hyprland's
+// ignorealpha), 0 for only the fully clear.
+uniform float discard_below;
 
 // Content that isn't plain SDR (an HDR video, a game's HDR10 swapchain) is
 // decoded to linear light, into sRGB primaries, scaled so 1.0 is SDR white,
@@ -284,7 +287,7 @@ void main() {
 	gl_FragColor = sample_texture() * alpha;
 #endif
 
-	if (discard_transparent && gl_FragColor.a == 0.0) {
+	if (discard_transparent && gl_FragColor.a <= discard_below) {
 		discard;
 	}
 }
