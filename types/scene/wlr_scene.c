@@ -360,7 +360,8 @@ static void scene_node_opaque_region(struct wlr_scene_node *node, int x, int y,
 			return;
 		}
 
-		if (scene_buffer->opacity != 1 || scene_buffer->warp_points != NULL ||
+		if (scene_buffer->opacity * scene_buffer->client_opacity != 1 ||
+				scene_buffer->warp_points != NULL ||
 				scene_buffer->motion_samples > 1) {
 			return;
 		}
@@ -1410,6 +1411,7 @@ struct wlr_scene_buffer *wlr_scene_buffer_create(struct wlr_scene_tree *parent,
 	wl_list_init(&scene_buffer->buffer_release.link);
 	wl_list_init(&scene_buffer->renderer_destroy.link);
 	scene_buffer->opacity = 1;
+	scene_buffer->client_opacity = 1;
 	scene_buffer->tint_saturation = 1;
 	scene_buffer->tint_brightness = 1;
 
@@ -1708,6 +1710,16 @@ void wlr_scene_buffer_set_opacity(struct wlr_scene_buffer *scene_buffer,
 
 	assert(opacity >= 0 && opacity <= 1);
 	scene_buffer->opacity = opacity;
+	scene_node_update(&scene_buffer->node, NULL);
+}
+
+void wlr_scene_buffer_set_client_opacity(struct wlr_scene_buffer *scene_buffer,
+		float opacity) {
+	if (scene_buffer->client_opacity == opacity) {
+		return;
+	}
+	assert(opacity >= 0 && opacity <= 1);
+	scene_buffer->client_opacity = opacity;
 	scene_node_update(&scene_buffer->node, NULL);
 }
 
@@ -2245,7 +2257,7 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
 					.g = rgb[1],
 					.b = rgb[2],
 					.a = (float)scene_buffer->single_pixel_buffer_color[3] /
-						(float)UINT32_MAX * scene_buffer->opacity,
+						(float)UINT32_MAX * scene_buffer->opacity * scene_buffer->client_opacity,
 				},
 				.clip = &render_region,
 			});
@@ -2290,6 +2302,7 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
 			sdr_primaries = &data->output->sdr_primaries;
 		}
 
+		const float alpha = scene_buffer->opacity * scene_buffer->client_opacity;
 		struct fx_render_texture_options tex_options = {
 			.base = (struct wlr_render_texture_options){
 				.texture = texture,
@@ -2297,7 +2310,7 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
 				.dst_box = dst_box,
 				.transform = transform,
 				.clip = &render_region, // Render with the smaller region, clipping CSD
-				.alpha = &scene_buffer->opacity,
+				.alpha = &alpha,
 				.filter_mode = scene_buffer->filter_mode,
 				.blend_mode = !data->output->scene->calculate_visibility ||
 					!pixman_region32_empty(&opaque) ?
@@ -2949,7 +2962,7 @@ static bool scene_buffer_is_black_opaque(struct wlr_scene_buffer *scene_buffer) 
 		scene_buffer->single_pixel_buffer_color[1] == 0 &&
 		scene_buffer->single_pixel_buffer_color[2] == 0 &&
 		scene_buffer->single_pixel_buffer_color[3] == UINT32_MAX &&
-		scene_buffer->opacity == 1.0 &&
+		scene_buffer->opacity == 1.0 && scene_buffer->client_opacity == 1.0 &&
 		fx_corner_radii_is_empty(&scene_buffer->corners);
 }
 
@@ -3121,7 +3134,8 @@ static enum scene_direct_scanout_result scene_entry_try_direct_scanout(
 
 	struct wlr_scene_buffer *buffer = wlr_scene_buffer_from_node(node);
 	if (buffer->buffer == NULL || buffer->warp_points != NULL || buffer->motion_samples > 1 ||
-			buffer->tint_saturation != 1 || buffer->tint_brightness != 1) {
+			buffer->tint_saturation != 1 || buffer->tint_brightness != 1 ||
+			buffer->opacity * buffer->client_opacity != 1) {
 		return SCANOUT_INELIGIBLE;
 	}
 

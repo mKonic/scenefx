@@ -268,6 +268,9 @@ struct wlr_scene_buffer {
 	struct wlr_scene_output *primary_output;
 
 	float opacity;
+	// The app's own (wp_alpha_modifier_v1), set on its commits; drawn
+	// multiplied with the compositor's `opacity`, which it never overrides.
+	float client_opacity;
 	enum wlr_scale_filter_mode filter_mode;
 	struct wlr_fbox src_box;
 	int dst_width, dst_height;
@@ -931,6 +934,13 @@ void wlr_scene_buffer_set_transform(struct wlr_scene_buffer *scene_buffer,
 * Sets the opacity of this buffer
 */
 void wlr_scene_buffer_set_opacity(struct wlr_scene_buffer *scene_buffer,
+	float opacity);
+
+/**
+ * The opacity the client asks for (wp_alpha_modifier_v1), kept apart from the
+ * compositor's: the two multiply.
+ */
+void wlr_scene_buffer_set_client_opacity(struct wlr_scene_buffer *scene_buffer,
 	float opacity);
 
 /**
