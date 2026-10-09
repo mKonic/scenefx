@@ -32,7 +32,9 @@ GLuint compile_shader(GLuint type, const GLchar *src) {
 	GLint ok;
 	glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
 	if (ok == GL_FALSE) {
-		wlr_log(WLR_ERROR, "Failed to compile shader");
+		GLchar log[2048] = {0};
+		glGetShaderInfoLog(shader, sizeof(log), NULL, log);
+		wlr_log(WLR_ERROR, "Failed to compile shader: %s", log);
 		glDeleteShader(shader);
 		shader = 0;
 	}
@@ -245,12 +247,17 @@ bool link_quad_grad_round_program(struct quad_grad_round_shader *shader, int max
 
 bool link_tex_program(struct tex_shader *shader, enum fx_tex_shader_source source,
 		bool effects) {
-	GLchar frag_src_part[8192];
-	GLchar frag_src[16384];
-	snprintf(frag_src_part, sizeof(frag_src_part),
-		tex_frag_src, source, effects);
-	snprintf(frag_src, sizeof(frag_src),
-		"%s\n%s\n", frag_src_part, effects ? corner_alpha_frag_src : "");
+	// Room for the sources as they grow; cut short they'd fail to compile
+	// for no clear reason.
+	static GLchar frag_src_part[32768];
+	static GLchar frag_src[49152];
+	if (snprintf(frag_src_part, sizeof(frag_src_part), tex_frag_src, source, effects) >=
+			(int)sizeof(frag_src_part) ||
+			snprintf(frag_src, sizeof(frag_src), "%s\n%s\n", frag_src_part,
+				effects ? corner_alpha_frag_src : "") >= (int)sizeof(frag_src)) {
+		wlr_log(WLR_ERROR, "tex shader source too long");
+		return false;
+	}
 
 	GLuint prog;
 	shader->program = prog = link_program(frag_src);
@@ -269,6 +276,9 @@ bool link_tex_program(struct tex_shader *shader, enum fx_tex_shader_source sourc
 	shader->motion_samples = glGetUniformLocation(prog, "motion_samples");
 	shader->motion_box = glGetUniformLocation(prog, "motion_box");
 	shader->motion_back = glGetUniformLocation(prog, "motion_back");
+	shader->material = glGetUniformLocation(prog, "material");
+	shader->material_box = glGetUniformLocation(prog, "material_box");
+	shader->material_texel = glGetUniformLocation(prog, "material_texel");
 
 	shader->discard_transparent = glGetUniformLocation(prog, "discard_transparent");
 

@@ -1269,6 +1269,14 @@ void wlr_scene_set_blur_data(struct wlr_scene *scene, int num_passes,
 	scene_node_update(&scene->tree.node, NULL);
 }
 
+void wlr_scene_set_blur_material(struct wlr_scene *scene, int material) {
+	if (scene->blur_data.material == material) {
+		return;
+	}
+	scene->blur_data.material = material;
+	scene_node_update(&scene->tree.node, NULL);
+}
+
 void wlr_scene_set_blur_num_passes(struct wlr_scene *scene, int num_passes) {
 	struct blur_data *buff_data = &scene->blur_data;
 	if (buff_data->num_passes == num_passes) {

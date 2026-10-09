@@ -70,6 +70,10 @@ struct fx_render_texture_options {
 	int motion_samples;
 	struct wlr_fbox motion_box;
 	float motion_back_x, motion_back_y;
+	// A blur's material (struct blur_data.material), its pattern at
+	// material_box (render buffer coordinates).
+	int material;
+	struct wlr_box material_box;
 };
 
 struct fx_render_rect_options {

@@ -751,6 +751,12 @@ void fx_render_pass_add_texture(struct fx_gles_render_pass *pass,
 
 	set_tex_matrix(shader->tex_proj, options->transform, &src_fbox);
 
+	glUniform1i(shader->material, fx_options->material);
+	if (fx_options->material) {
+		const struct wlr_box *m = &fx_options->material_box;
+		glUniform4f(shader->material_box, m->x, m->y, m->width, m->height);
+		glUniform2f(shader->material_texel, 1.0f / options->texture->width, 1.0f / options->texture->height);
+	}
 	glUniform1i(shader->motion_samples, fx_options->motion_samples);
 	if (fx_options->motion_samples > 1) {
 		const struct wlr_fbox *m = &fx_options->motion_box;
@@ -1633,6 +1639,8 @@ void fx_render_pass_add_blur(struct fx_gles_render_pass *pass,
 	struct wlr_texture *wlr_texture =
 		fx_texture_from_buffer(&renderer->wlr_renderer, buffer->buffer);
 	struct fx_texture *blur_texture = fx_get_texture(wlr_texture);
+	// The material's pattern sits where the blur is drawn (the window).
+	const struct wlr_box pattern_box = tex_options->base.dst_box;
 
 	// Get a stencil of the window ignoring transparent regions. Glass finds
 	// its own shape in the mask (and draws its shadow outside it).
@@ -1672,7 +1680,10 @@ void fx_render_pass_add_blur(struct fx_gles_render_pass *pass,
 	// since we're capturing from the fbo, transform will always be normal
 	tex_options->base.transform = WL_OUTPUT_TRANSFORM_NORMAL;
 	tex_options->clipped_region = fx_options->clipped_region;
+	tex_options->material = fx_options->blur_data ? fx_options->blur_data->material : 0;
+	tex_options->material_box = pattern_box;
 	fx_render_pass_add_texture(pass, tex_options);
+	tex_options->material = 0;
 
 	wlr_texture_destroy(&blur_texture->wlr_texture);
 

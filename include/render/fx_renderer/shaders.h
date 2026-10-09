@@ -120,6 +120,9 @@ struct tex_shader {
 	GLint motion_samples;
 	GLint motion_box;
 	GLint motion_back;
+	GLint material;
+	GLint material_box;
+	GLint material_texel;
 
 	GLint discard_transparent;
 

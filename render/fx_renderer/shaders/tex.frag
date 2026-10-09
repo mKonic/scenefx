@@ -128,7 +128,112 @@ float motion_round(vec2 p, vec2 size) {
 	return 1.0;
 }
 
+// A blur's material (fx_render_texture_options.material), Hyprland's frost
+// and haze finishes (frostfinish.frag, hazefinish.frag, glassFinish.glsl;
+// BSD-3-Clause): 1 frost, 2 haze. The pattern sits at material_box (the
+// window); material_texel is a pixel of the texture.
+uniform int material;
+uniform vec4 material_box;
+uniform vec2 material_texel;
+
+float material_hash(vec2 p) {
+	vec3 p3 = fract(vec3(p.xyx) * 1689.1984);
+	p3 += dot(p3, p3.yzx + 33.33);
+	return fract((p3.x + p3.y) * p3.z);
+}
+
+const float FROST_REFRACTION = 20.0;  // decoration:blur:glass:refraction
+const float FROST_SIZE = 40.0;        // decoration:blur:glass:size
+const float FROST_ROUGHNESS = 1.0;    // decoration:blur:glass:roughness
+
+vec2 frost_random(vec2 cell) {
+	return vec2(material_hash(cell + vec2(13.37, 71.91)), material_hash(cell + vec2(83.17, 29.53)));
+}
+
+vec2 frost_warp(vec2 p) {
+	const vec2 D1 = vec2(1.73, -1.21);
+	const vec2 D2 = vec2(1.11, 1.87);
+	const vec2 D3 = vec2(-2.19, 0.83);
+	vec2 w = vec2(sin(dot(p, D1) + 0.7), cos(dot(p, D2) + 1.9));
+	w += vec2(cos(dot(p, D3) + 2.8), sin(dot(p, D1 - D2) + 4.1)) * 0.45;
+	return w * 0.16;
+}
+
+vec2 frost_gradient(vec2 p) {
+	p += frost_warp(p);
+	vec2 base = floor(p);
+	float nd = 1e10;
+	float sd = 1e10;
+	vec2 nearest = vec2(0.0);
+	vec2 second = vec2(0.0);
+	for (int y = -1; y <= 1; ++y) {
+		for (int x = -1; x <= 1; ++x) {
+			vec2 cell = base + vec2(float(x), float(y));
+			vec2 offset = p - (cell + mix(vec2(0.16), vec2(0.84), frost_random(cell)));
+			float d = dot(offset, offset);
+			if (d < nd) {
+				sd = nd;
+				second = nearest;
+				nd = d;
+				nearest = offset;
+			} else if (d < sd) {
+				sd = d;
+				second = offset;
+			}
+		}
+	}
+	float boundary = length(second) - length(nearest);
+	// fwidth(boundary): about two pixels' worth of cell units.
+	float seam = 1.0 - smoothstep(0.0, 0.028 + (2.0 / FROST_SIZE) * 1.5, boundary);
+	vec2 dir = second - nearest;
+	dir /= max(length(dir), 0.0001);
+	vec2 grain = vec2(sin(dot(p, vec2(2.61, -1.43))), cos(dot(p, vec2(1.19, 2.37)))) * 0.09;
+	return nearest * 0.34 + grain + dir * seam * 0.55;
+}
+
+vec4 frost() {
+	vec2 n = frost_gradient((v_frag - material_box.xy) / FROST_SIZE);
+	n /= max(1.0, length(n));
+	vec4 c = sample_at(clamp(v_texcoord + FROST_REFRACTION * n * material_texel, vec2(0.0), vec2(1.0)));
+	const vec2 LIGHT = vec2(-0.451219, 0.892413);
+	c.rgb *= 1.0 + dot(n, LIGHT) * FROST_ROUGHNESS * 0.12;
+	return c;
+}
+
+const float HAZE_INTENSITY = 0.35;    // decoration:blur:haze:intensity
+const float HAZE_IRIDESCENCE = 0.7;   // decoration:blur:haze:iridescence
+const vec3 BT709_LUMA = vec3(0.2126, 0.7152, 0.0722);
+
+vec3 pearl(float phase) {
+	const vec3 COOL = vec3(0.55, 1.08, 1.35);
+	const vec3 MID = vec3(1.28, 0.86, 1.30);
+	const vec3 WARM = vec3(1.40, 0.92, 0.58);
+	float t = phase * 0.5 + 0.5;
+	vec3 c = t < 0.5 ? mix(COOL, MID, t * 2.0) : mix(MID, WARM, (t - 0.5) * 2.0);
+	return c / max(dot(c, BT709_LUMA), 0.001);
+}
+
+vec4 haze() {
+	vec4 c = sample_at(v_texcoord);
+	if (c.a <= 0.001) {
+		return c;
+	}
+	// The frame is gamma 2.2: into light and back.
+	vec3 light = pow(max(c.rgb / c.a, vec3(0.0)), vec3(2.2));
+	float luminance = max(dot(light, BT709_LUMA), 0.0);
+	float phase = clamp(dot(v_texcoord - vec2(0.5), vec2(1.28, -0.72)), -1.0, 1.0);
+	vec3 shift = luminance * (pearl(phase) - vec3(1.0)) * HAZE_IRIDESCENCE * 0.65;
+	vec3 film = max((light + shift) * (1.0 + (1.0 - abs(phase)) * 0.08), vec3(0.0));
+	light = mix(light, film, HAZE_INTENSITY);
+	return vec4(pow(max(light, vec3(0.0)), vec3(1.0 / 2.2)) * c.a, c.a);
+}
+
 vec4 sample_texture() {
+	if (material == 1) {
+		return frost();
+	} else if (material == 2) {
+		return haze();
+	}
 	if (motion_samples <= 1) {
 		return hdr_decode(sample_at(v_texcoord));
 	}

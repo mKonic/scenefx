@@ -477,6 +477,12 @@ void wlr_scene_set_blur_data(struct wlr_scene *scene, int num_passes,
 	int radius, float noise, float brightness, float contrast, float saturation);
 
 // Sets the global blur num_passes parameter
+/**
+ * The finish over the blur where it's drawn: 0 none, 1 frost, 2 haze
+ * (Hyprland's), its pattern placed at each blur.
+ */
+void wlr_scene_set_blur_material(struct wlr_scene *scene, int material);
+
 void wlr_scene_set_blur_num_passes(struct wlr_scene *scene, int num_passes);
 
 // Sets the global blur radius parameter

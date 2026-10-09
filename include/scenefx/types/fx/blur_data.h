@@ -11,6 +11,8 @@ struct blur_data {
 	float brightness;
 	float contrast;
 	float saturation;
+	// The finish over it: 0 plain, 1 frost, 2 haze (Hyprland's).
+	int material;
 };
 
 struct blur_data blur_data_get_default(void);
