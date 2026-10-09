@@ -159,6 +159,7 @@ void wlr_scene_node_destroy(struct wlr_scene_node *node) {
 		pixman_region32_fini(&scene_buffer->opaque_region);
 		wlr_drm_syncobj_timeline_unref(scene_buffer->wait_timeline);
 		linked_node_destroy(&scene_buffer->blur);
+		free(scene_buffer->warp_points);
 
 		assert(wl_list_empty(&scene_buffer->events.output_leave.listener_list));
 		assert(wl_list_empty(&scene_buffer->events.output_enter.listener_list));
@@ -359,7 +360,7 @@ static void scene_node_opaque_region(struct wlr_scene_node *node, int x, int y,
 			return;
 		}
 
-		if (scene_buffer->opacity != 1) {
+		if (scene_buffer->opacity != 1 || scene_buffer->warp_points != NULL) {
 			return;
 		}
 
@@ -1599,6 +1600,35 @@ void wlr_scene_buffer_set_source_box(struct wlr_scene_buffer *scene_buffer,
 	scene_node_update(&scene_buffer->node, NULL);
 }
 
+void wlr_scene_buffer_set_warp(struct wlr_scene_buffer *scene_buffer,
+		int cols, int rows, const float *points, int width, int height) {
+	if (points == NULL || cols <= 0 || rows <= 0) {
+		if (scene_buffer->warp_points == NULL) {
+			return;
+		}
+		free(scene_buffer->warp_points);
+		scene_buffer->warp_points = NULL;
+		scene_buffer->warp_cols = scene_buffer->warp_rows = 0;
+		scene_node_update(&scene_buffer->node, NULL);
+		return;
+	}
+
+	size_t len = (size_t)(cols + 1) * (rows + 1) * 2;
+	if (scene_buffer->warp_cols != cols || scene_buffer->warp_rows != rows) {
+		float *grown = realloc(scene_buffer->warp_points, len * sizeof(float));
+		if (grown == NULL) {
+			return;
+		}
+		scene_buffer->warp_points = grown;
+		scene_buffer->warp_cols = cols;
+		scene_buffer->warp_rows = rows;
+	}
+	memcpy(scene_buffer->warp_points, points, len * sizeof(float));
+	scene_buffer->warp_width = width;
+	scene_buffer->warp_height = height;
+	scene_node_update(&scene_buffer->node, NULL);
+}
+
 void wlr_scene_buffer_set_dest_size(struct wlr_scene_buffer *scene_buffer,
 		int width, int height) {
 	if (scene_buffer->dst_width == width && scene_buffer->dst_height == height) {
@@ -1997,6 +2027,45 @@ static float get_luminance_multiplier(const struct wlr_color_luminances *src_lum
 	return (dst_lum->reference / src_lum->reference) * (src_lum->max / dst_lum->max);
 }
 
+// A warped buffer's grid, for the renderer: each point where it lands in the
+// output's buffer, then where it is in the unbent buffer's dst box (0 to 1).
+// `box` is the unbent buffer there, for its corners.
+static float *scene_buffer_warp_to_output(struct wlr_scene_buffer *scene_buffer,
+		const struct render_list_entry *entry, const struct render_data *data,
+		struct wlr_box *box) {
+	enum wl_output_transform transform = wlr_output_transform_invert(data->transform);
+	int cols = scene_buffer->warp_cols, rows = scene_buffer->warp_rows;
+	size_t count = (size_t)(cols + 1) * (rows + 1);
+	float *out = malloc(count * 4 * sizeof(float));
+	if (out == NULL) {
+		return NULL;
+	}
+	for (int j = 0; j <= rows; j++) {
+		for (int i = 0; i <= cols; i++) {
+			size_t k = (size_t)j * (cols + 1) + i;
+			struct wlr_fbox at = {
+				.x = (entry->x - data->logical.x + scene_buffer->warp_points[k * 2]) * data->scale,
+				.y = (entry->y - data->logical.y + scene_buffer->warp_points[k * 2 + 1]) * data->scale,
+			};
+			wlr_fbox_transform(&at, &at, transform, data->trans_width, data->trans_height);
+			struct wlr_fbox uv = { .x = (double)i / cols, .y = (double)j / rows };
+			wlr_fbox_transform(&uv, &uv, transform, 1, 1);
+			out[k * 4] = at.x;
+			out[k * 4 + 1] = at.y;
+			out[k * 4 + 2] = uv.x;
+			out[k * 4 + 3] = uv.y;
+		}
+	}
+	*box = (struct wlr_box){
+		.x = entry->x - data->logical.x,
+		.y = entry->y - data->logical.y,
+		.width = scene_buffer->warp_width,
+		.height = scene_buffer->warp_height,
+	};
+	transform_output_box(box, data);
+	return out;
+}
+
 static void scene_entry_render(struct render_list_entry *entry, const struct render_data *data) {
 	struct wlr_scene_node *node = entry->node;
 	struct fx_gles_render_pass *fx_pass = fx_get_render_pass(data->render_pass);
@@ -2166,8 +2235,22 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
 			.clipped_region = {0},
 		};
 
+		float *warp = NULL;
+		if (scene_buffer->warp_points != NULL) {
+			warp = scene_buffer_warp_to_output(scene_buffer, entry, data,
+				&tex_options.warp_box);
+			tex_options.warp = warp;
+			tex_options.warp_cols = scene_buffer->warp_cols;
+			tex_options.warp_rows = scene_buffer->warp_rows;
+			tex_options.base.blend_mode = WLR_RENDER_BLEND_MODE_PREMULTIPLIED;
+			if (warp == NULL) {
+				break;
+			}
+		}
+
 		// TODO: Use the base wlr_render_pass_add_texture as a fast-path in the future
 		fx_render_pass_add_texture(fx_pass, &tex_options);
+		free(warp);
 
 		struct wlr_scene_output_sample_event sample_event = {
 			.output = data->output,
@@ -2905,7 +2988,7 @@ static enum scene_direct_scanout_result scene_entry_try_direct_scanout(
 	}
 
 	struct wlr_scene_buffer *buffer = wlr_scene_buffer_from_node(node);
-	if (buffer->buffer == NULL) {
+	if (buffer->buffer == NULL || buffer->warp_points != NULL) {
 		return SCANOUT_INELIGIBLE;
 	}
 

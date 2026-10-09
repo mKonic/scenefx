@@ -298,6 +298,12 @@ struct wlr_scene_buffer {
 
 	struct fx_corner_radii corners;
 	struct linked_node blur;
+
+	// Drawn bent over a grid instead of as a rectangle (see
+	// wlr_scene_buffer_set_warp). NULL when it isn't.
+	float *warp_points;
+	int warp_cols, warp_rows;
+	int warp_width, warp_height;
 };
 
 /** A viewport for an output in the scene-graph */
@@ -845,6 +851,18 @@ void wlr_scene_buffer_set_source_box(struct wlr_scene_buffer *scene_buffer,
  * If zero, the destination size will be the buffer size. By default, the
  * destination size is zero.
  */
+/**
+ * Draw the buffer bent: `points` holds (cols + 1) * (rows + 1) x, y pairs,
+ * row by row, in node-local coordinates; point (i, j) is where the spot
+ * i / cols across and j / rows down the buffer (as it would be shown) is
+ * drawn. Everything drawn must fall inside the node's size (set it with
+ * wlr_scene_buffer_set_dest_size), which is what is damaged. A warped buffer
+ * is never opaque and never scanned out. width and height are its size
+ * unbent, which its corners are rounded at. NULL (or no cells) clears it.
+ */
+void wlr_scene_buffer_set_warp(struct wlr_scene_buffer *scene_buffer,
+	int cols, int rows, const float *points, int width, int height);
+
 void wlr_scene_buffer_set_dest_size(struct wlr_scene_buffer *scene_buffer,
 	int width, int height);
 

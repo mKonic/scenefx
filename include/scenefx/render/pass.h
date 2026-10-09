@@ -57,6 +57,13 @@ struct fx_render_texture_options {
 	struct fx_corner_fradii corners;
 	bool discard_transparent;
 	struct clipped_fregion clipped_region;
+	// Drawn bent over a grid of (warp_cols + 1) * (warp_rows + 1) points,
+	// each x, y in the render buffer then u, v across dst_box (0 to 1),
+	// instead of filling dst_box. warp_box is the unbent rectangle, which the
+	// corners are rounded at. Clipped to base.clip.
+	const float *warp;
+	int warp_cols, warp_rows;
+	struct wlr_box warp_box;
 };
 
 struct fx_render_rect_options {

@@ -51,6 +51,10 @@ struct fx_render_rect_options fx_render_rect_options_default(
 
 static void render(const struct wlr_box *box, const pixman_region32_t *clip, GLint attrib);
 static void set_proj_matrix(GLint loc, float proj[9], const struct wlr_box *box);
+struct tex_shader;
+static void render_warp(const struct fx_render_texture_options *options,
+		const struct wlr_box *whole, const pixman_region32_t *clip,
+		const struct tex_shader *shader);
 static void set_tex_matrix(GLint loc, enum wl_output_transform trans,
 		const struct wlr_fbox *box);
 
@@ -436,6 +440,72 @@ static void render(const struct wlr_box *box, const pixman_region32_t *clip, GLi
 	pixman_region32_fini(&region);
 }
 
+// A bent texture's grid as triangles, drawn once per clip rectangle with the
+// rest scissored away (the render buffer's coordinates are GL's: y = 0 is
+// its first row).
+static void render_warp(const struct fx_render_texture_options *options,
+		const struct wlr_box *whole, const pixman_region32_t *clip,
+		const struct tex_shader *shader) {
+	int rects_len;
+	const pixman_box32_t *rects = pixman_region32_rectangles(clip, &rects_len);
+	if (rects_len == 0 || shader->texcoord_attrib < 0) {
+		return;
+	}
+
+	int cols = options->warp_cols, rows = options->warp_rows;
+	size_t verts_len = (size_t)cols * rows * 6;
+	GLfloat *pos = malloc(verts_len * 2 * sizeof(GLfloat));
+	GLfloat *uv = malloc(verts_len * 2 * sizeof(GLfloat));
+	if (pos == NULL || uv == NULL) {
+		free(pos);
+		free(uv);
+		return;
+	}
+	static const int corner[6][2] = {{0, 0}, {1, 0}, {0, 1}, {1, 0}, {1, 1}, {0, 1}};
+	size_t n = 0;
+	for (int j = 0; j < rows; j++) {
+		for (int i = 0; i < cols; i++) {
+			for (int c = 0; c < 6; c++) {
+				const float *p = &options->warp[
+					((size_t)(j + corner[c][1]) * (cols + 1) + i + corner[c][0]) * 4];
+				pos[n * 2] = p[0] / whole->width;
+				pos[n * 2 + 1] = p[1] / whole->height;
+				uv[n * 2] = p[2];
+				uv[n * 2 + 1] = p[3];
+				n++;
+			}
+		}
+	}
+
+	GLint program = 0;
+	glGetIntegerv(GL_CURRENT_PROGRAM, &program);
+	GLint frag_size = glGetUniformLocation((GLuint)program, "frag_size");
+	if (frag_size >= 0) {
+		glUniform2f(frag_size, whole->width, whole->height);
+	}
+	glUniform1f(shader->warped, 1.0f);
+	glUniform4f(shader->warp_box, options->warp_box.x, options->warp_box.y,
+		options->warp_box.width, options->warp_box.height);
+
+	glEnableVertexAttribArray(shader->pos_attrib);
+	glEnableVertexAttribArray(shader->texcoord_attrib);
+	glVertexAttribPointer(shader->pos_attrib, 2, GL_FLOAT, GL_FALSE, 0, pos);
+	glVertexAttribPointer(shader->texcoord_attrib, 2, GL_FLOAT, GL_FALSE, 0, uv);
+	glEnable(GL_SCISSOR_TEST);
+	for (int i = 0; i < rects_len; i++) {
+		const pixman_box32_t *r = &rects[i];
+		glScissor(r->x1, r->y1, r->x2 - r->x1, r->y2 - r->y1);
+		glDrawArrays(GL_TRIANGLES, 0, (GLsizei)verts_len);
+	}
+	glDisable(GL_SCISSOR_TEST);
+	glDisableVertexAttribArray(shader->texcoord_attrib);
+	glDisableVertexAttribArray(shader->pos_attrib);
+	glUniform1f(shader->warped, 0.0f);
+
+	free(pos);
+	free(uv);
+}
+
 static void set_proj_matrix(GLint loc, float proj[9], const struct wlr_box *box) {
 	float gl_matrix[9];
 	wlr_matrix_identity(gl_matrix);
@@ -593,7 +663,8 @@ void fx_render_pass_add_texture(struct fx_gles_render_pass *pass,
 		}
 	}
 
-	bool has_alpha = texture->has_alpha || alpha < 1.0 || use_effects;
+	bool has_alpha = texture->has_alpha || alpha < 1.0 || use_effects
+		|| fx_options->warp != NULL;
 	TRACY_ZONE_TEXT_f("Has Alpha: %d", has_alpha);
 	setup_blending(!has_alpha ? WLR_RENDER_BLEND_MODE_NONE : options->blend_mode);
 
@@ -678,10 +749,25 @@ void fx_render_pass_add_texture(struct fx_gles_render_pass *pass,
 		uniform_corner_radii_set(&shader->effects.clip_radius, &clipped_region_corners);
 	}
 
-	set_proj_matrix(shader->proj, pass->projection_matrix, &dst_box);
 	set_tex_matrix(shader->tex_proj, options->transform, &src_fbox);
 
-	render(&dst_box, &clip_region, shader->pos_attrib);
+	if (fx_options->warp != NULL) {
+		struct wlr_box whole = {
+			.width = pass->buffer->buffer->width,
+			.height = pass->buffer->buffer->height,
+		};
+		if (use_effects) {
+			glUniform2f(shader->effects.size, fx_options->warp_box.width,
+				fx_options->warp_box.height);
+			glUniform2f(shader->effects.position, fx_options->warp_box.x,
+				fx_options->warp_box.y);
+		}
+		set_proj_matrix(shader->proj, pass->projection_matrix, &whole);
+		render_warp(fx_options, &whole, &clip_region, shader);
+	} else {
+		set_proj_matrix(shader->proj, pass->projection_matrix, &dst_box);
+		render(&dst_box, &clip_region, shader->pos_attrib);
+	}
 	pixman_region32_fini(&clip_region);
 
 	glBindTexture(texture->target, 0);

@@ -114,6 +114,9 @@ struct tex_shader {
 	GLint tex;
 	GLint alpha;
 	GLint pos_attrib;
+	GLint texcoord_attrib;
+	GLint warped;
+	GLint warp_box;
 
 	GLint discard_transparent;
 
