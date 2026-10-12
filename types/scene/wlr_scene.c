@@ -2999,9 +2999,31 @@ struct render_list_constructor_data {
 	struct wlr_box box;
 	struct wl_array *render_list;
 	bool calculate_visibility;
+	bool keep_black;
 	bool highlight_transparent_region;
 	bool fractional_scale;
 };
+
+// A dirty optimized blur keeps what is below it visible to re-blur it (see
+// scene_node_update_iterator), under opaque nodes above it too, and stays
+// dirty until a blur shows.
+static bool scene_has_dirty_optimized_blur(struct wlr_scene_node *node) {
+	if (!node->enabled) {
+		return false;
+	}
+	if (node->type == WLR_SCENE_NODE_OPTIMIZED_BLUR) {
+		return wlr_scene_optimized_blur_from_node(node)->dirty;
+	} else if (node->type == WLR_SCENE_NODE_TREE) {
+		struct wlr_scene_tree *scene_tree = wlr_scene_tree_from_node(node);
+		struct wlr_scene_node *child;
+		wl_list_for_each(child, &scene_tree->children, link) {
+			if (scene_has_dirty_optimized_blur(child)) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
 
 static bool scene_buffer_is_black_opaque(struct wlr_scene_buffer *scene_buffer) {
 	return scene_buffer->is_single_pixel_buffer &&
@@ -3034,8 +3056,9 @@ static bool construct_render_list_iterator(struct wlr_scene_node *node,
 	// While rendering, the background should always be black. If we see a
 	// black rect, we can ignore rendering everything under the rect, and
 	// unless fractional scale is used even the rect itself (to avoid running
-	// into issues regarding damage region expansion).
-	if (node->type == WLR_SCENE_NODE_RECT && data->calculate_visibility &&
+	// into issues regarding damage region expansion). Not while a dirty
+	// optimized blur has what is below drawn anyway: the rect has to cover it.
+	if (node->type == WLR_SCENE_NODE_RECT && data->calculate_visibility && !data->keep_black &&
 			(!data->fractional_scale || data->render_list->size == 0)) {
 		struct wlr_scene_rect *rect = wlr_scene_rect_from_node(node);
 
@@ -3045,7 +3068,7 @@ static bool construct_render_list_iterator(struct wlr_scene_node *node,
 	}
 
 	// Apply the same special-case to black opaque single-pixel buffers
-	if (node->type == WLR_SCENE_NODE_BUFFER && data->calculate_visibility &&
+	if (node->type == WLR_SCENE_NODE_BUFFER && data->calculate_visibility && !data->keep_black &&
 			(!data->fractional_scale || data->render_list->size == 0)) {
 		struct wlr_scene_buffer *scene_buffer = wlr_scene_buffer_from_node(node);
 
@@ -3576,6 +3599,7 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
 		.box = render_data.logical,
 		.render_list = &scene_output->render_list,
 		.calculate_visibility = scene_output->scene->calculate_visibility,
+		.keep_black = scene_has_dirty_optimized_blur(&scene_output->scene->tree.node),
 		.highlight_transparent_region = scene_output->scene->highlight_transparent_region,
 		.fractional_scale = floor(render_data.scale) != render_data.scale,
 	};
