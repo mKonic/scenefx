@@ -358,16 +358,43 @@ static uint32_t fx_texture_preferred_read_format(struct wlr_texture *wlr_texture
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	pop_fx_debug(texture->fx_renderer);
 
+	// What a wl_shm capture (grim, screencopy) is offered. GLES2 can always
+	// read back GL_RGBA/GL_UNSIGNED_BYTE, and GL_BGRA_EXT with
+	// EXT_read_format_bgra, so 8-bit targets publish a 32-bit format in the
+	// BGRA order clients are written against. Two cases must not reach a
+	// client as they are: the NVIDIA driver reports GL_RGB for opaque targets,
+	// whose 24-bit rows clients assuming 4-byte pixels turn into a stride
+	// wl_shm rejects; and a 10-bit target, which shm clients expect as 8-bit
+	// (GLES converts the depth on readback). From umbrielfx's fx_texture.c.
+	bool bgra = texture->fx_renderer->exts.EXT_read_format_bgra;
+	struct wlr_dmabuf_attributes dmabuf;
+	if (texture->buffer != NULL && texture->buffer->buffer != NULL &&
+			wlr_buffer_get_dmabuf(texture->buffer->buffer, &dmabuf)) {
+		switch (dmabuf.format) {
+		case DRM_FORMAT_XRGB2101010:
+		case DRM_FORMAT_XBGR2101010:
+			fmt = bgra ? DRM_FORMAT_XRGB8888 : DRM_FORMAT_XBGR8888;
+			goto out;
+		case DRM_FORMAT_ARGB2101010:
+		case DRM_FORMAT_ABGR2101010:
+			fmt = bgra ? DRM_FORMAT_ARGB8888 : DRM_FORMAT_ABGR8888;
+			goto out;
+		}
+	}
 	const struct fx_pixel_format *pix_fmt =
 		get_fx_format_from_gl(gl_format, gl_type, alpha_size > 0);
-	if (pix_fmt != NULL) {
+	switch (pix_fmt != NULL ? pix_fmt->drm_format : DRM_FORMAT_INVALID) {
+	case DRM_FORMAT_ABGR8888:
+		fmt = bgra ? DRM_FORMAT_ARGB8888 : DRM_FORMAT_ABGR8888;
+		break;
+	case DRM_FORMAT_XBGR8888:
+	case DRM_FORMAT_BGR888:
+	case DRM_FORMAT_INVALID:
+		fmt = bgra ? DRM_FORMAT_XRGB8888 : DRM_FORMAT_XBGR8888;
+		break;
+	default:
 		fmt = pix_fmt->drm_format;
-		goto out;
-	}
-
-	if (texture->fx_renderer->exts.EXT_read_format_bgra) {
-		fmt = DRM_FORMAT_XRGB8888;
-		goto out;
+		break;
 	}
 
 out:
