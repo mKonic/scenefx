@@ -47,7 +47,7 @@ uniform float clip_radius_bottom_right;
 uniform bool discard_transparent;
 // With discard_transparent: what counts as transparent (Hyprland's
 // ignorealpha), 0 for only the fully clear.
-uniform float discard_below;
+uniform float ignore_alpha_threshold;
 
 // Content that isn't plain SDR (an HDR video, a game's HDR10 swapchain) is
 // decoded to linear light, into sRGB primaries, scaled so 1.0 is SDR white,
@@ -269,6 +269,8 @@ vec4 tinted(vec4 c) {
 }
 
 void main() {
+	vec4 color = sample_texture();
+
 #if EFFECTS
 	float quad_corner_alpha = corner_alpha(
 		size - 0.5,
@@ -291,12 +293,14 @@ void main() {
 		clip_radius_bottom_right
 	);
 
-	gl_FragColor = tinted(sample_texture()) * alpha * quad_corner_alpha * clip_corner_alpha;
+	gl_FragColor = tinted(color) * alpha * quad_corner_alpha * clip_corner_alpha;
 #else
-	gl_FragColor = tinted(sample_texture()) * alpha;
+	gl_FragColor = tinted(color) * alpha;
 #endif
 
-	if (discard_transparent && gl_FragColor.a <= discard_below) {
+	// Upstream's test on the texture's own alpha; also anything drawn
+	// fully clear (outside rounded corners), as before.
+	if (discard_transparent && (color.a <= ignore_alpha_threshold || gl_FragColor.a == 0.0)) {
 		discard;
 	}
 }

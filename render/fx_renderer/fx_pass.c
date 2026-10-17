@@ -695,14 +695,15 @@ static bool apply_clip_region(pixman_region32_t *clip_region,
 		float left = fmax(corners->top_left, corners->bottom_left);
 		float right = fmax(corners->top_right, corners->bottom_right);
 
+		// Round inwards: truncating would overlap the top-left rounded corners
+		int x1 = ceil(clipped_region_box->x + left * 0.3);
+		int y1 = ceil(clipped_region_box->y + top * 0.3);
+		int x2 = floor(clipped_region_box->x + clipped_region_box->width - right * 0.3);
+		int y2 = floor(clipped_region_box->y + clipped_region_box->height - bottom * 0.3);
+
 		pixman_region32_t user_clip_region;
-		pixman_region32_init_rect(
-			&user_clip_region,
-			clipped_region_box->x + (left * 0.3),
-			clipped_region_box->y + (top * 0.3),
-			fmax(clipped_region_box->width - (left + right) * 0.3, 0),
-			fmax(clipped_region_box->height - (top + bottom) * 0.3, 0)
-		);
+		pixman_region32_init_rect(&user_clip_region, x1, y1,
+			x2 > x1 ? x2 - x1 : 0, y2 > y1 ? y2 - y1 : 0);
 		pixman_region32_subtract(clip_region, clip_region, &user_clip_region);
 		pixman_region32_fini(&user_clip_region);
 		return true;
@@ -845,7 +846,7 @@ void fx_render_pass_add_texture(struct fx_gles_render_pass *pass,
 		glUniform2f(shader->tint, 1.0f, 1.0f);
 	}
 	glUniform1f(shader->discard_transparent, fx_options->discard_transparent);
-	glUniform1f(shader->discard_below, fx_options->discard_below);
+	glUniform1f(shader->ignore_alpha_threshold, fx_options->ignore_alpha_threshold);
 
 	// Content in another transfer function or gamut (HDR) is converted to
 	// what the frame is drawn in; plain SDR is drawn as is.
@@ -1798,6 +1799,7 @@ void fx_render_pass_add_blur(struct fx_gles_render_pass *pass,
 
 		struct fx_render_texture_options tex_options = fx_options->tex_options;
 		tex_options.discard_transparent = true;
+		tex_options.ignore_alpha_threshold = fx_options->ignore_alpha_threshold;
 		tex_options.clipped_region = fx_options->clipped_region;
 		fx_render_pass_add_texture(pass, &tex_options);
 

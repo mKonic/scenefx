@@ -213,8 +213,10 @@ struct wlr_scene_blur {
 	bool should_only_blur_bottom_layer;
 
 	struct linked_node transparency_mask_source;
-	// The mask's pixels at or below this alpha are left unblurred.
-	float mask_alpha_threshold;
+
+	/* Pixels whose alpha is at or below this value are not blurred. Only
+	 * used when a transparency mask source is set. Default is 0.0f. */
+	float ignore_alpha_threshold;
 };
 
 /** A scene-graph node telling SceneFX to render the optimized blur */
@@ -722,12 +724,6 @@ void wlr_scene_blur_set_should_only_blur_bottom_layer(struct wlr_scene_blur *blu
  * Set the transparency mask source for the blur, only rendering blur where the
  * Mask source is actually rendering (e.g. skip transparent spaces)
  */
-/**
- * Leave the mask's pixels at or below `alpha` unblurred (a menu's soft
- * shadow), as Hyprland's ignorealpha; 0 (the default) only the clear ones.
- */
-void wlr_scene_blur_set_mask_alpha_threshold(struct wlr_scene_blur *blur, float alpha);
-
 void wlr_scene_blur_set_transparency_mask_source(struct wlr_scene_blur *blur,
 	   struct wlr_scene_buffer *source);
 
@@ -769,6 +765,22 @@ void wlr_scene_blur_set_glass(struct wlr_scene_blur *blur, const struct wlr_scen
  */
 void wlr_scene_blur_set_glass_shapes(struct wlr_scene_blur *blur,
 		const struct wlr_scene_glass_shape *shapes, int count);
+
+/**
+ * Sets the threshold below which the blur ignores a pixel. Pixels whose
+ * surface alpha is at or below the value are skipped and left unblurred.
+ * The valid range is 0.0f -> 1.0f and values outside of it are clamped.
+ * Default is 0.0f, which only skips fully transparent pixels.
+ *
+ * This only takes effect when a transparency mask source has been set with
+ * wlr_scene_blur_set_transparency_mask_source(). Without a mask the blur mask
+ * pass is not used and this value is ignored.
+ *
+ * Note that the comparison is inclusive, so a value of 1.0f skips every
+ * pixel, including fully opaque ones, which disables the blur entirely.
+ */
+void wlr_scene_blur_set_ignore_alpha_threshold(struct wlr_scene_blur *blur,
+		float ignore_alpha_threshold);
 
 /**
  * Sets the blur strength from 1.0f -> 0.0f. This adjusts how strong the blur is

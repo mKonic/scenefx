@@ -1112,6 +1112,7 @@ struct wlr_scene_blur *wlr_scene_blur_create(struct wlr_scene_tree *parent,
 
 	blur->alpha = 1.0f;
 	blur->strength = 1.0f;
+	blur->ignore_alpha_threshold = 0.0f;
 	blur->clipped_region = (struct clipped_region){0};
 	blur->corners = corner_radii_all(0);
 	blur->should_only_blur_bottom_layer = false;
@@ -1155,14 +1156,6 @@ void wlr_scene_blur_set_should_only_blur_bottom_layer(struct wlr_scene_blur *blu
 	}
 
 	blur->should_only_blur_bottom_layer = should_only_blur_bottom_layer;
-	scene_node_update(&blur->node, NULL);
-}
-
-void wlr_scene_blur_set_mask_alpha_threshold(struct wlr_scene_blur *blur, float alpha) {
-	if (blur->mask_alpha_threshold == alpha) {
-		return;
-	}
-	blur->mask_alpha_threshold = alpha;
 	scene_node_update(&blur->node, NULL);
 }
 
@@ -1237,6 +1230,22 @@ void wlr_scene_blur_set_refraction(struct wlr_scene_blur *blur, float refraction
 
 	blur->refraction = refraction;
 	blur->refraction_thickness = thickness;
+	scene_node_update(&blur->node, NULL);
+}
+
+void wlr_scene_blur_set_ignore_alpha_threshold(struct wlr_scene_blur *blur,
+		float ignore_alpha_threshold) {
+	if (ignore_alpha_threshold < 0.0f) {
+		ignore_alpha_threshold = 0.0f;
+	} else if (ignore_alpha_threshold > 1.0f) {
+		ignore_alpha_threshold = 1.0f;
+	}
+
+	if (blur->ignore_alpha_threshold == ignore_alpha_threshold) {
+		return;
+	}
+
+	blur->ignore_alpha_threshold = ignore_alpha_threshold;
 	scene_node_update(&blur->node, NULL);
 }
 
@@ -2540,11 +2549,11 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
 				.clip_box = &dst_box,
 				.corners = fx_corner_radii_scale(blur_corners, data->scale),
 				.discard_transparent = false,
-				.discard_below = blur->mask_alpha_threshold,
 			},
 			.use_optimized_blur = blur->should_only_blur_bottom_layer,
 			.blur_data = &scene->blur_data,
 			.ignore_transparent = mask != NULL,
+			.ignore_alpha_threshold = blur->ignore_alpha_threshold,
 			.blur_strength = blur->strength,
 			.refraction = blur->refraction * data->scale,
 			.refraction_thickness = blur->refraction_thickness * data->scale,

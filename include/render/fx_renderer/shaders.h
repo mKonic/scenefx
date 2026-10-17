@@ -126,7 +126,7 @@ struct tex_shader {
 	GLint tint;
 
 	GLint discard_transparent;
-	GLint discard_below;
+	GLint ignore_alpha_threshold;
 
 	GLint hdr_tf;
 	GLint hdr_prim;

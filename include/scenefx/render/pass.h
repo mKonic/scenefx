@@ -64,8 +64,6 @@ struct fx_render_texture_options {
 	const struct wlr_box *clip_box; // Used to clip csd. Ignored if NULL
 	struct fx_corner_fradii corners;
 	bool discard_transparent;
-	// With discard_transparent: alpha at or below this counts as clear.
-	float discard_below;
 	struct clipped_fregion clipped_region;
 	// Drawn bent over a grid of (warp_cols + 1) * (warp_rows + 1) points,
 	// each x, y in the render buffer then u, v across dst_box (0 to 1),
@@ -86,6 +84,10 @@ struct fx_render_texture_options {
 	// material_box (render buffer coordinates).
 	int material;
 	struct wlr_box material_box;
+
+	/* Pixels whose alpha is at or below this value are discarded when
+	 * discard_transparent is set, and are ignored otherwise. */
+	float ignore_alpha_threshold;
 };
 
 struct fx_render_rect_options {
@@ -143,6 +145,10 @@ struct fx_render_blur_pass_options {
 	// radius, opacity. None: its shape is the mask's.
 	float glass_shapes[16][10];  // box, radius, opacity, clip box (width < 0: none)
 	int glass_shape_count;
+
+	/* Pixels whose alpha is at or below this value are not blurred. Only used
+	 * when ignore_transparent is true (a transparency mask source is set). */
+	float ignore_alpha_threshold;
 };
 
 struct fx_gles_render_pass *fx_get_render_pass(struct wlr_render_pass *render_pass);

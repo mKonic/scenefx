@@ -282,7 +282,7 @@ bool link_tex_program(struct tex_shader *shader, enum fx_tex_shader_source sourc
 	shader->tint = glGetUniformLocation(prog, "tint");
 
 	shader->discard_transparent = glGetUniformLocation(prog, "discard_transparent");
-	shader->discard_below = glGetUniformLocation(prog, "discard_below");
+	shader->ignore_alpha_threshold = glGetUniformLocation(prog, "ignore_alpha_threshold");
 
 	shader->hdr_tf = glGetUniformLocation(prog, "hdr_tf");
 	shader->hdr_prim = glGetUniformLocation(prog, "hdr_prim");
