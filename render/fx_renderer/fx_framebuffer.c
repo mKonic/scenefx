@@ -214,6 +214,8 @@ struct gl_only_buffer {
 
 static void gl_only_buffer_destroy(struct wlr_buffer *wlr_buffer) {
 	struct gl_only_buffer *buffer = wl_container_of(wlr_buffer, buffer, base);
+	// Runs the addon that deletes its GL texture, framebuffer and stencil.
+	wlr_buffer_finish(wlr_buffer);
 	free(buffer);
 }
 
