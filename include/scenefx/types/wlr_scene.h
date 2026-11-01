@@ -175,23 +175,80 @@ struct wlr_scene_shadow {
 	struct clipped_region clipped_region;
 };
 
-/** Liquid Glass's material over its bent background (see glass.frag). */
+/** Liquid Glass's blend modes, numbered as Sketch's (the kit's styles come
+ * from Sketch): W3C Compositing Level 1, plus Apple's plus-darker and
+ * plus-lighter. */
+enum wlr_scene_glass_blend {
+	WLR_SCENE_GLASS_BLEND_NORMAL = 0,
+	WLR_SCENE_GLASS_BLEND_DARKEN,
+	WLR_SCENE_GLASS_BLEND_MULTIPLY,
+	WLR_SCENE_GLASS_BLEND_COLOR_BURN,
+	WLR_SCENE_GLASS_BLEND_LIGHTEN,
+	WLR_SCENE_GLASS_BLEND_SCREEN,
+	WLR_SCENE_GLASS_BLEND_COLOR_DODGE,
+	WLR_SCENE_GLASS_BLEND_OVERLAY,
+	WLR_SCENE_GLASS_BLEND_SOFT_LIGHT,
+	WLR_SCENE_GLASS_BLEND_HARD_LIGHT,
+	WLR_SCENE_GLASS_BLEND_DIFFERENCE,
+	WLR_SCENE_GLASS_BLEND_EXCLUSION,
+	WLR_SCENE_GLASS_BLEND_HUE,
+	WLR_SCENE_GLASS_BLEND_SATURATION,
+	WLR_SCENE_GLASS_BLEND_COLOR,
+	WLR_SCENE_GLASS_BLEND_LUMINOSITY,
+	WLR_SCENE_GLASS_BLEND_PLUS_DARKER,
+	WLR_SCENE_GLASS_BLEND_PLUS_LIGHTER,
+};
+
+/** A colour laid over the glass's frosted backdrop. */
+struct wlr_scene_glass_fill {
+	float color[4];  // straight rgb; alpha: how much
+	enum wlr_scene_glass_blend blend;
+};
+
+/** A shadow of the glass's shape, in logical pixels: outside it (cast on
+ * what is behind) or inner (the shape's surround cast inward: the glass's
+ * lit edges and its thickness). */
+struct wlr_scene_glass_shadow {
+	float x, y;      // offset
+	float sigma;     // the Gaussian's
+	float spread;    // grows an outer shadow; an inner one's hole shrinks by it
+	float color[4];  // straight rgb; alpha: how much
+	enum wlr_scene_glass_blend blend;
+	bool inner;
+};
+
+#define WLR_SCENE_GLASS_MAX_FILLS 4
+#define WLR_SCENE_GLASS_MAX_SHADOWS 16
+#define WLR_SCENE_GLASS_MAX_MATERIALS 5
+
+/** One kind of Liquid Glass: its backdrop frosted (the node's blur), made
+ * richer and brighter, bent inward near its edge, then the fills over it and
+ * its shadows round it, in order. */
+struct wlr_scene_glass_material {
+	float saturation;  // 1: the backdrop's colour as is
+	float brightness;  // 1: as is
+	float depth;       // how far in the bending reaches, of the short half side
+	float distortion;  // how far it bends at the rim, of that depth
+	int fill_count;
+	struct wlr_scene_glass_fill fills[WLR_SCENE_GLASS_MAX_FILLS];
+	int shadow_count;
+	struct wlr_scene_glass_shadow shadows[WLR_SCENE_GLASS_MAX_SHADOWS];
+};
+
+/** The materials a node's glass shapes are made of, by index. */
 struct wlr_scene_glass {
-	float tint[4];      // the glass's colour, straight alpha as how much of it
-	float adapt;        // extra tint where the backdrop would fight the content
-	float saturation;   // 1: the backdrop as is; more: richer
-	float highlight;    // the rim's light, 0 for none
-	float light_dir[2]; // where the light travels (screen space, y down)
-	float shadow;       // the soft shadow outside it, 0 for none
+	int material_count;
+	struct wlr_scene_glass_material materials[WLR_SCENE_GLASS_MAX_MATERIALS];
 };
 
 /** A piece of Liquid Glass: a rounded rectangle in the blur node's
- * coordinates, and how opaque it is. The clip is where it shows (a card in a
- * scrolled list): cut there, no rim along the cut; a clip_width of 0 is
- * all of it. */
+ * coordinates, its material and how opaque it is. The clip is where it shows
+ * (a card in a scrolled list): cut there, no edge along the cut; a
+ * clip_width of 0 is all of it. Later shapes lie over earlier ones. */
 struct wlr_scene_glass_shape {
 	float x, y, width, height, radius, opacity;
 	float clip_x, clip_y, clip_width, clip_height;
+	int material;
 };
 
 #define WLR_SCENE_GLASS_MAX_SHAPES 16
@@ -205,7 +262,6 @@ struct wlr_scene_blur {
 
 	float strength;
 	float alpha;
-	float refraction, refraction_thickness;
 	struct wlr_scene_glass glass;
 	struct wlr_scene_glass_shape glass_shapes[WLR_SCENE_GLASS_MAX_SHAPES];
 	int glass_shape_count;
@@ -745,23 +801,13 @@ struct wlr_scene_buffer *wlr_scene_blur_get_transparency_mask_source(
 void wlr_scene_blur_set_alpha(struct wlr_scene_blur *blur, float alpha);
 
 /**
- * Liquid Glass: bend the background by up to `refraction` pixels near the
- * blurred shape's edge, fading out `thickness` pixels in. The shape is the
- * transparency mask source's alpha if there is one, else the rounded box.
- * 0 draws it flat (the default).
- */
-void wlr_scene_blur_set_refraction(struct wlr_scene_blur *blur, float refraction, float thickness);
-
-/**
- * Liquid Glass's material: tint, vibrancy and the rim's light, drawn with the
- * bent background (only when refraction is on).
+ * Liquid Glass's materials, which its shapes name by index.
  */
 void wlr_scene_blur_set_glass(struct wlr_scene_blur *blur, const struct wlr_scene_glass *glass);
 
 /**
- * Where the glass is, exactly (at most WLR_SCENE_GLASS_MAX_SHAPES): drawn from
- * these shapes' geometry instead of the transparency mask's pixels. None
- * goes back to the mask.
+ * Where the glass is, exactly (at most WLR_SCENE_GLASS_MAX_SHAPES). A blur
+ * with shapes is Liquid Glass, drawn from their geometry; none is plain blur.
  */
 void wlr_scene_blur_set_glass_shapes(struct wlr_scene_blur *blur,
 		const struct wlr_scene_glass_shape *shapes, int count);

@@ -44,13 +44,9 @@ static void addon_handle_destroy(struct wlr_addon *addon) {
 		wlr_buffer_drop(fbos->blend_buffer->buffer);
 		fbos->blend_buffer = NULL;
 	}
-	if (fbos->glass_field_buffer != NULL) {
-		wlr_buffer_drop(fbos->glass_field_buffer->buffer);
-		fbos->glass_field_buffer = NULL;
-	}
-	if (fbos->glass_field_buffer_swapped != NULL) {
-		wlr_buffer_drop(fbos->glass_field_buffer_swapped->buffer);
-		fbos->glass_field_buffer_swapped = NULL;
+	if (fbos->glass_backdrop_buffer != NULL) {
+		wlr_buffer_drop(fbos->glass_backdrop_buffer->buffer);
+		fbos->glass_backdrop_buffer = NULL;
 	}
 
 	wl_list_remove(&fbos->link);

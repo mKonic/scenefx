@@ -33,9 +33,9 @@ struct fx_offscreen_buffers {
 	// which version of it.
 	struct wlr_texture *lut_texture;
 	uint64_t lut_gen;
-	// Liquid Glass's shape field, blurred across then down (glass_field.frag).
-	struct fx_framebuffer *glass_field_buffer;
-	struct fx_framebuffer *glass_field_buffer_swapped;
+	// What is under a Liquid Glass node, as it was: glass.frag composites
+	// over it and writes the node's region whole.
+	struct fx_framebuffer *glass_backdrop_buffer;
 };
 
 void fx_offscreen_buffers_destroy(struct fx_offscreen_buffers *fbos);

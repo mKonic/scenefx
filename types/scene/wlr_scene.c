@@ -1223,16 +1223,6 @@ void wlr_scene_blur_set_glass_shapes(struct wlr_scene_blur *blur,
 	scene_node_update(&blur->node, NULL);
 }
 
-void wlr_scene_blur_set_refraction(struct wlr_scene_blur *blur, float refraction, float thickness) {
-	if (blur->refraction == refraction && blur->refraction_thickness == thickness) {
-		return;
-	}
-
-	blur->refraction = refraction;
-	blur->refraction_thickness = thickness;
-	scene_node_update(&blur->node, NULL);
-}
-
 void wlr_scene_blur_set_ignore_alpha_threshold(struct wlr_scene_blur *blur,
 		float ignore_alpha_threshold) {
 	if (ignore_alpha_threshold < 0.0f) {
@@ -2517,14 +2507,7 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
 		enum wl_output_transform mask_transform = WL_OUTPUT_TRANSFORM_NORMAL;
 
 		struct wlr_fbox mask_src_box = {0};
-		struct wlr_box mask_box = dst_box;
 		if (mask != NULL) {
-			mask_box = (struct wlr_box){
-				.x = x + mask->node.x - node->x,
-				.y = y + mask->node.y - node->y,
-			};
-			scene_node_get_size(&mask->node, &mask_box.width, &mask_box.height);
-			transform_output_box(&mask_box, data);
 			tex = scene_buffer_get_texture(mask, data->output->output->renderer);
 			mask_transform = wlr_output_transform_invert(mask->transform);
 			mask_transform = wlr_output_transform_compose(mask_transform, data->transform);
@@ -2555,10 +2538,8 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
 			.ignore_transparent = mask != NULL,
 			.ignore_alpha_threshold = blur->ignore_alpha_threshold,
 			.blur_strength = blur->strength,
-			.refraction = blur->refraction * data->scale,
-			.refraction_thickness = blur->refraction_thickness * data->scale,
 			.glass = &blur->glass,
-			.mask_box = mask_box,
+			.glass_scale = data->scale,
 		};
 		for (int i = 0; i < blur->glass_shape_count && i < 16; i++) {
 			const struct wlr_scene_glass_shape *s = &blur->glass_shapes[i];
@@ -2596,6 +2577,7 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
 				out[6] = out[7] = 0;
 				out[8] = out[9] = -1;
 			}
+			out[10] = s->material;
 		}
 		fx_render_pass_add_blur(fx_pass, &blur_options);
 		break;
@@ -3380,7 +3362,7 @@ static bool apply_blur_region(struct wlr_scene_node *node, struct blur_data *blu
 		// patches along the rim). Glass redraws whole; its nodes are small.
 		if (node->type == WLR_SCENE_NODE_BLUR) {
 			struct wlr_scene_blur *blur = wlr_scene_blur_from_node(node);
-			if (blur->glass_shape_count > 0 || blur->refraction > 0) {
+			if (blur->glass_shape_count > 0) {
 				pixman_region32_copy(&intersection, &node_visible_region);
 			}
 		}

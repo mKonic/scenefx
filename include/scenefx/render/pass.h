@@ -132,18 +132,14 @@ struct fx_render_blur_pass_options {
 	float blur_strength;
 	struct fx_corner_fradii corners;
 	struct clipped_fregion clipped_region;
-	// Liquid Glass: bend the background by up to `refraction` pixels within
-	// `refraction_thickness` of the edge. 0 draws it flat, as before.
-	float refraction;
-	float refraction_thickness;
-	// The glass's material (when refraction > 0): see struct wlr_scene_glass.
+	// Liquid Glass's materials (when there are shapes): see struct
+	// wlr_scene_glass. Their sizes are logical: glass_scale pixels each.
 	const struct wlr_scene_glass *glass;
-	// Where the mask (the panel's buffer) is, in output buffer pixels: the
-	// glass node may reach past it (for its shadow).
-	struct wlr_box mask_box;
-	// The glass's shapes, in output buffer pixels: x, y, width, height,
-	// radius, opacity. None: its shape is the mask's.
-	float glass_shapes[16][10];  // box, radius, opacity, clip box (width < 0: none)
+	float glass_scale;
+	// The glass's shapes, in output buffer pixels, bottom to top: x, y,
+	// width, height, radius, opacity, clip box (width < 0: none), material.
+	// None: plain blur.
+	float glass_shapes[16][11];
 	int glass_shape_count;
 
 	/* Pixels whose alpha is at or below this value are not blurred. Only used

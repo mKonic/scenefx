@@ -1565,104 +1565,29 @@ static struct fx_framebuffer *get_main_buffer_blur(struct fx_gles_render_pass *p
 	return fx_options->current_buffer;
 }
 
-// Liquid Glass's shape field (glass_field.frag): the panel's coverage
-// blurred across into one buffer, then down into the other, over the glass
-// node's box (`node`, which the shadow reaches past the panel). NULL when
-// the buffers can't be had: the glass is then drawn without it.
-static struct fx_framebuffer *render_glass_field(struct fx_gles_render_pass *pass,
-		struct fx_texture *mask_tex, struct wlr_box mask_box, const float mask_src[4],
-		float radius, struct wlr_box node, float sigma, int width, int height) {
-	struct fx_renderer *renderer = pass->buffer->renderer;
-	struct fx_offscreen_buffers *fbos = pass->fx_offscreen_buffers;
-	struct glass_field_shader *shader = &renderer->shaders.glass_field;
-	bool failed = false;
-	fx_framebuffer_get_or_create_half_float(renderer, width, height, &fbos->glass_field_buffer, &failed);
-	fx_framebuffer_get_or_create_half_float(renderer, width, height, &fbos->glass_field_buffer_swapped, &failed);
-	if (failed) {
-		return NULL;
+// How far past its shape a material's outer shadows reach, in buffer pixels.
+static float glass_material_reach(const struct wlr_scene_glass_material *m, float scale) {
+	float reach = 1.0f;
+	for (int i = 0; i < m->shadow_count && i < WLR_SCENE_GLASS_MAX_SHADOWS; i++) {
+		const struct wlr_scene_glass_shadow *sh = &m->shadows[i];
+		if (!sh->inner) {
+			reach = fmaxf(reach, fabsf(sh->x) + fabsf(sh->y) + sh->spread + 3.0f * sh->sigma + 1.0f);
+		}
 	}
-
-	struct wlr_box dst_box = { .width = width, .height = height };
-	struct wlr_fbox src_fbox = { .width = 1.0, .height = 1.0 };
-	const int reach = (int)ceilf(3.0f * sigma) + 2;
-	glDisable(GL_BLEND);
-	glUseProgram(shader->program);
-	set_proj_matrix(shader->proj, pass->projection_matrix, &dst_box);
-	set_tex_matrix(shader->tex_proj, WL_OUTPUT_TRANSFORM_NORMAL, &src_fbox);
-	if (mask_tex) {
-		glActiveTexture(GL_TEXTURE1);
-		glBindTexture(GL_TEXTURE_2D, mask_tex->tex);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glUniform1i(shader->mask, 1);
-		glUniform4f(shader->mask_src, mask_src[0], mask_src[1], mask_src[2], mask_src[3]);
-		glActiveTexture(GL_TEXTURE0);
-	}
-	glUniform1i(shader->has_mask, mask_tex != NULL);
-	glUniform2f(shader->box_pos, mask_box.x, mask_box.y);
-	glUniform2f(shader->box_size, mask_box.width, mask_box.height);
-	glUniform1f(shader->radius, radius);
-	glUniform1f(shader->sigma, sigma);
-	glUniform2f(shader->texel, 1.0f / width, 1.0f / height);
-	glUniform1i(shader->tex, 0);
-
-	// Across, over rows reaching past the node by the kernel, which the
-	// second pass reads.
-	pixman_region32_t region;
-	pixman_region32_init_rect(&region, node.x, node.y - reach, node.width, node.height + 2 * reach);
-	fx_framebuffer_bind(fbos->glass_field_buffer_swapped);
-	glUniform1i(shader->first, 1);
-	glUniform2f(shader->dir, 1.0f, 0.0f);
-	render(&dst_box, &region, shader->pos_attrib);
-	pixman_region32_fini(&region);
-
-	// Down, over the node (and a pixel round it, for glass.frag's gradient).
-	pixman_region32_init_rect(&region, node.x - 1, node.y - 1, node.width + 2, node.height + 2);
-	fx_framebuffer_bind(fbos->glass_field_buffer);
-	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, fbos->glass_field_buffer_swapped->tex);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glUniform1i(shader->first, 0);
-	glUniform2f(shader->dir, 0.0f, 1.0f);
-	render(&dst_box, &region, shader->pos_attrib);
-	pixman_region32_fini(&region);
-	glBindTexture(GL_TEXTURE_2D, 0);
-
-	fx_framebuffer_bind(pass->buffer);
-	glEnable(GL_BLEND);
-	return fbos->glass_field_buffer;
+	return reach * scale;
 }
 
-// The blurred background, bent at a glass panel's edge (glass.frag).
+// Liquid Glass (glass.frag), over the node's region: the frosted backdrop
+// in `blur`, what is there now copied aside for the shader to composite
+// over.
 static void render_glass(struct fx_gles_render_pass *pass, struct fx_texture *blur,
-		const struct fx_render_blur_pass_options *fx_options, struct wlr_texture *mask,
-		struct wlr_box mask_box, struct wlr_fbox mask_src) {
+		const struct fx_render_blur_pass_options *fx_options) {
 	struct fx_renderer *renderer = pass->buffer->renderer;
 	struct glass_shader *shader = &renderer->shaders.glass;
 	const struct wlr_render_texture_options *options = &fx_options->tex_options.base;
 	const int width = blur->wlr_texture.width, height = blur->wlr_texture.height;
 	struct wlr_box dst_box = { .width = width, .height = height };
 	struct wlr_fbox src_fbox = { .width = 1.0, .height = 1.0 };
-
-	struct fx_texture *mask_tex = mask ? fx_get_texture(mask) : NULL;
-	if (mask_tex && mask_tex->target != GL_TEXTURE_2D) {
-		mask_tex = NULL;
-	}
-	if (!mask_tex) {
-		mask_box = *fx_options->tex_options.clip_box;
-	}
-	const float mask_norm[4] = {
-		mask ? mask_src.x / mask->width : 0, mask ? mask_src.y / mask->height : 0,
-		mask ? mask_src.width / mask->width : 1, mask ? mask_src.height / mask->height : 1,
-	};
-	const float sigma = fmaxf(fx_options->refraction_thickness / 2.5f, 1.0f);
-	// Shapes given: their exact geometry. Otherwise, the mask's blurred.
-	const int shape_count = fx_options->glass_shape_count;
-	struct fx_framebuffer *field = shape_count > 0 ? NULL : render_glass_field(pass, mask_tex, mask_box,
-		mask_norm, fx_options->tex_options.corners.top_left, *fx_options->tex_options.clip_box, sigma, width, height);
-
-	setup_blending(WLR_RENDER_BLEND_MODE_PREMULTIPLIED);
 
 	pixman_region32_t clip_region;
 	if (options->clip) {
@@ -1672,80 +1597,108 @@ static void render_glass(struct fx_gles_render_pass *pass, struct fx_texture *bl
 		pixman_region32_init_rect(&clip_region, 0, 0, width, height);
 	}
 
+	bool failed = false;
+	struct fx_offscreen_buffers *fbos = pass->fx_offscreen_buffers;
+	fx_framebuffer_get_or_create_half_float(renderer, width, height, &fbos->glass_backdrop_buffer, &failed);
+	if (failed || !fbos->glass_backdrop_buffer) {
+		wlr_log(WLR_ERROR, "Liquid Glass: no buffer for its backdrop");
+		pixman_region32_fini(&clip_region);
+		return;
+	}
+	fx_render_pass_read_to_buffer(pass, &clip_region, fbos->glass_backdrop_buffer, pass->buffer);
+
+	const struct wlr_scene_glass none = { 0 };
+	const struct wlr_scene_glass *g = fx_options->glass ? fx_options->glass : &none;
+	const float scale = fx_options->glass_scale > 0 ? fx_options->glass_scale : 1.0f;
+
+	GLfloat boxes[16 * 4], extras[16 * 4], clips[16 * 4];
+	const int shape_count = fx_options->glass_shape_count;
+	for (int i = 0; i < shape_count; i++) {
+		const float *s = fx_options->glass_shapes[i];
+		for (int k = 0; k < 4; k++) {
+			boxes[i * 4 + k] = s[k];
+			clips[i * 4 + k] = s[6 + k];
+		}
+		int m = (int)s[10];
+		if (m < 0 || m >= g->material_count) {
+			m = 0;
+		}
+		extras[i * 4 + 0] = s[4];
+		extras[i * 4 + 1] = s[5];
+		extras[i * 4 + 2] = (float)m;
+		extras[i * 4 + 3] = 0;
+	}
+
+	enum { M = WLR_SCENE_GLASS_MAX_MATERIALS, F = WLR_SCENE_GLASS_MAX_FILLS, S = WLR_SCENE_GLASS_MAX_SHADOWS };
+	GLfloat optics[M * 4] = { 0 }, counts[M * 4] = { 0 };
+	GLfloat fill_color[M * F * 4] = { 0 }, fill_blend[M * F] = { 0 };
+	GLfloat sh_geo[M * S * 4] = { 0 }, sh_color[M * S * 4] = { 0 }, sh_meta[M * S * 2] = { 0 };
+	for (int m = 0; m < g->material_count && m < M; m++) {
+		const struct wlr_scene_glass_material *mat = &g->materials[m];
+		const int nf = mat->fill_count < F ? mat->fill_count : F;
+		const int ns = mat->shadow_count < S ? mat->shadow_count : S;
+		optics[m * 4 + 0] = mat->saturation;
+		optics[m * 4 + 1] = mat->brightness;
+		optics[m * 4 + 2] = mat->depth;
+		optics[m * 4 + 3] = mat->distortion;
+		counts[m * 4 + 0] = nf;
+		counts[m * 4 + 1] = ns;
+		counts[m * 4 + 2] = glass_material_reach(mat, scale);
+		for (int i = 0; i < nf; i++) {
+			memcpy(&fill_color[(m * F + i) * 4], mat->fills[i].color, sizeof(float) * 4);
+			fill_blend[m * F + i] = mat->fills[i].blend;
+		}
+		for (int i = 0; i < ns; i++) {
+			const struct wlr_scene_glass_shadow *sh = &mat->shadows[i];
+			GLfloat *geo = &sh_geo[(m * S + i) * 4];
+			geo[0] = sh->x * scale;
+			geo[1] = sh->y * scale;
+			geo[2] = sh->sigma * scale;
+			geo[3] = sh->spread * scale;
+			memcpy(&sh_color[(m * S + i) * 4], sh->color, sizeof(float) * 4);
+			sh_meta[(m * S + i) * 2 + 0] = sh->blend;
+			sh_meta[(m * S + i) * 2 + 1] = sh->inner ? 1.0f : 0.0f;
+		}
+	}
+
+	// Written whole (opaque): the shader composites over the copy.
+	setup_blending(WLR_RENDER_BLEND_MODE_NONE);
 	glUseProgram(shader->program);
+
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(blur->target, blur->tex);
 	glTexParameteri(blur->target, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(blur->target, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glUniform1i(shader->tex, 0);
-
-	if (mask_tex) {
-		glActiveTexture(GL_TEXTURE1);
-		glBindTexture(GL_TEXTURE_2D, mask_tex->tex);
-		// Linear, so the edge is found between pixels, not on them.
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glUniform1i(shader->mask, 1);
-		glUniform4f(shader->mask_src, mask_norm[0], mask_norm[1], mask_norm[2], mask_norm[3]);
-		glActiveTexture(GL_TEXTURE0);
-	}
-	glUniform1i(shader->has_mask, mask_tex != NULL);
-	glActiveTexture(GL_TEXTURE2);
-	glBindTexture(GL_TEXTURE_2D, field ? field->tex : 0);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glUniform1i(shader->field, 2);
-	glUniform2f(shader->field_texel, 1.0f / width, 1.0f / height);
-	glUniform1f(shader->field_sigma, sigma);
+	glActiveTexture(GL_TEXTURE1);
+	glBindTexture(GL_TEXTURE_2D, fbos->glass_backdrop_buffer->tex);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glUniform1i(shader->sharp, 1);
 	glActiveTexture(GL_TEXTURE0);
-	GLfloat boxes[16 * 4], extras[16 * 2], clips[16 * 4];
-	for (int i = 0; i < shape_count; i++) {
-		const float *s = fx_options->glass_shapes[i];
-		boxes[i * 4 + 0] = s[0];
-		boxes[i * 4 + 1] = s[1];
-		boxes[i * 4 + 2] = s[2];
-		boxes[i * 4 + 3] = s[3];
-		extras[i * 2 + 0] = s[4];
-		extras[i * 2 + 1] = s[5];
-		for (int k = 0; k < 4; k++)
-			clips[i * 4 + k] = s[6 + k];
-	}
+
 	if (shape_count > 0) {
 		glUniform4fv(shader->shape_box, shape_count, boxes);
-		glUniform2fv(shader->shape_extra, shape_count, extras);
+		glUniform4fv(shader->shape_extra, shape_count, extras);
 		glUniform4fv(shader->shape_clip, shape_count, clips);
 	}
 	glUniform1i(shader->shape_count, shape_count);
-
+	glUniform4fv(shader->mat_optics, M, optics);
+	glUniform4fv(shader->mat_counts, M, counts);
+	glUniform4fv(shader->fill_color, M * F, fill_color);
+	glUniform1fv(shader->fill_blend, M * F, fill_blend);
+	glUniform4fv(shader->sh_geo, M * S, sh_geo);
+	glUniform4fv(shader->sh_color, M * S, sh_color);
+	glUniform2fv(shader->sh_meta, M * S, sh_meta);
 	glUniform2f(shader->texel, 1.0f / width, 1.0f / height);
-	glUniform2f(shader->box_pos, mask_box.x, mask_box.y);
-	glUniform2f(shader->box_size, mask_box.width, mask_box.height);
-	glUniform1f(shader->radius, fx_options->tex_options.corners.top_left);
-	glUniform1f(shader->refraction, fx_options->refraction);
-	glUniform1f(shader->thickness, fx_options->refraction_thickness);
 	glUniform1f(shader->alpha, wlr_render_texture_options_get_alpha(options));
-	const struct wlr_scene_glass *g = fx_options->glass;
-	const struct wlr_scene_glass plain = { .saturation = 1.0f, .light_dir = { 0.7071f, 0.7071f } };
-	if (g == NULL) {
-		g = &plain;
-	}
-	glUniform4f(shader->tint, g->tint[0], g->tint[1], g->tint[2], g->tint[3]);
-	glUniform1f(shader->adapt, g->adapt);
-	glUniform1f(shader->saturation, g->saturation);
-	glUniform1f(shader->highlight, g->highlight);
-	glUniform2f(shader->light_dir, g->light_dir[0], g->light_dir[1]);
-	glUniform1f(shader->shadow, g->shadow);
 
 	set_proj_matrix(shader->proj, pass->projection_matrix, &dst_box);
 	set_tex_matrix(shader->tex_proj, WL_OUTPUT_TRANSFORM_NORMAL, &src_fbox);
 	render(&dst_box, &clip_region, shader->pos_attrib);
 	pixman_region32_fini(&clip_region);
 
-	if (mask_tex) {
-		glActiveTexture(GL_TEXTURE1);
-		glBindTexture(GL_TEXTURE_2D, 0);
-	}
-	glActiveTexture(GL_TEXTURE2);
+	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, 0);
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(blur->target, 0);
@@ -1793,7 +1746,7 @@ void fx_render_pass_add_blur(struct fx_gles_render_pass *pass,
 	// Get a stencil of the window ignoring transparent regions. Glass finds
 	// its own shape in the mask (and draws its shadow outside it).
 	const bool stencil = fx_options->ignore_transparent && fx_options->tex_options.base.texture &&
-		fx_options->refraction <= 0;
+		fx_options->glass_shape_count == 0;
 	if (stencil) {
 		stencil_mask_init();
 
@@ -1807,9 +1760,8 @@ void fx_render_pass_add_blur(struct fx_gles_render_pass *pass,
 	}
 
 	// Draw the blurred texture: bent at the edge for glass, flat otherwise.
-	if (fx_options->refraction > 0) {
-		render_glass(pass, blur_texture, fx_options, fx_options->tex_options.base.texture,
-			fx_options->mask_box, fx_options->tex_options.base.src_box);
+	if (fx_options->glass_shape_count > 0) {
+		render_glass(pass, blur_texture, fx_options);
 		wlr_texture_destroy(&blur_texture->wlr_texture);
 		goto unstencil;
 	}
